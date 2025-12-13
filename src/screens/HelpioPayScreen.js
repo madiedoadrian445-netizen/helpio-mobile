@@ -15,11 +15,14 @@ import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../config/api";
 import { Audio } from "expo-av";
+import { useAuthStore } from "../store/auth";
+
 
 const HELP_IO_PURPLE = "#7B61FF";
 const HELP_IO_BLACK = "#000000";
 
 export default function HelpioPayScreen({ navigation }) {
+  const { provider } = useAuthStore();
   const [cents, setCents] = useState("0");
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
@@ -34,6 +37,10 @@ export default function HelpioPayScreen({ navigation }) {
   const translateY = useRef(new Animated.Value(0)).current;
   const successScale = useRef(new Animated.Value(0.6)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
+
+
+  
+
 
   // Format cents → "42.00"
   const formattedAmount = React.useMemo(() => {
@@ -172,6 +179,12 @@ export default function HelpioPayScreen({ navigation }) {
       setErrorMessage("Enter an amount above $0.00.");
       return;
     }
+
+   if (!provider?._id) {
+  setErrorMessage("Provider profile not loaded yet.");
+  return;
+}
+
 
     setIsProcessing(true);
     setErrorMessage(null);
