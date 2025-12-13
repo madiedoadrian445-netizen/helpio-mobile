@@ -1,55 +1,35 @@
 // src/config/api.js
+import axios from "axios";
+import useAuthStore from "../store/auth";
 
 export const API_BASE_URL = "https://helpio-backend.onrender.com";
 
-export const api = {
-  async get(path, token = null) {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      }
-    });
-    return res.json();
+/* ---------------------------------------------------------
+   Axios instance
+---------------------------------------------------------- */
+export const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    "Content-Type": "application/json",
+    Accept: "application/json",
   },
+});
 
-  async post(path, body = {}, token = null) {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify(body)
-    });
-    return res.json();
+/* ---------------------------------------------------------
+   Automatically attach token to every request (ZUSTAND)
+---------------------------------------------------------- */
+api.interceptors.request.use(
+  (config) => {
+    // ⭐ Ensure headers exist
+    config.headers = config.headers || {};
+
+    const token = useAuthStore.getState().token;
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    return config;
   },
-
-  async put(path, body = {}, token = null) {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: "PUT",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify(body)
-    });
-    return res.json();
-  },
-
-  async del(path, token = null) {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      method: "DELETE",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      }
-    });
-    return res.json();
-  }
-};
+  (error) => Promise.reject(error)
+);

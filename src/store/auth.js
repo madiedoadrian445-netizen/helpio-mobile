@@ -1,16 +1,46 @@
 // src/store/auth.js
+import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const KEY = "helpio_token";
+const TOKEN_KEY = "authToken"; // ⭐ MUST MATCH api.js
 
-export async function setToken(token) {
-  try { await AsyncStorage.setItem(KEY, token); } catch {}
-}
+const useAuthStore = create((set) => ({
+  user: null,
+  provider: null,
+  token: null,
+  isHydrated: false,
 
-export async function getToken() {
-  try { return await AsyncStorage.getItem(KEY); } catch { return null; }
-}
+  setAuth: async ({ user, provider, token }) => {
+    if (token) {
+      await AsyncStorage.setItem(TOKEN_KEY, token);
+    }
 
-export async function clearToken() {
-  try { await AsyncStorage.removeItem(KEY); } catch {}
-}
+    set({
+      user: user || null,
+      provider: provider || null,
+      token: token || null,
+      isHydrated: true,
+    });
+  },
+
+  hydrate: async () => {
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
+
+    set({
+      token: token || null,
+      isHydrated: true,
+    });
+  },
+
+  logout: async () => {
+    await AsyncStorage.removeItem(TOKEN_KEY);
+    set({
+      user: null,
+      provider: null,
+      token: null,
+      isHydrated: true,
+    });
+  },
+}));
+
+export default useAuthStore;

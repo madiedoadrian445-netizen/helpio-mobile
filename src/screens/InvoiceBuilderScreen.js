@@ -30,30 +30,6 @@ import { API_BASE_URL } from "../../src/config/api";
 
 const HELP_BLUE = "#00A6FF";
 
-const clients = [
-  {
-    id: "1",
-    name: "Donna Jones",
-    address: "1358 Botsford Dr",
-    phone: "(555) 555-5555",
-    email: "donnajones@example.com",
-  },
-  {
-    id: "2",
-    name: "Redline Underground Cars",
-    address: "2841 NW 25th St",
-    phone: "(305) 555-0123",
-    email: "service@redlineunderground.com",
-  },
-  {
-    id: "3",
-    name: "Veloz Contractors",
-    address: "742 Construction Ave",
-    phone: "(786) 555-9876",
-    email: "info@velozcontractors.com",
-  },
-];
-
 const currency = (n) =>
   (isNaN(Number(n)) ? 0 : Number(n)).toLocaleString("en-US", {
     style: "currency",
@@ -84,6 +60,109 @@ export default function InvoiceBuilderScreen({ navigation, route }) {
   const scrollRef = useRef(null);
   const inputRefs = useRef({});
 
+  // ------------------------------------------------------
+  // ⭐ REAL CRM CLIENT FETCH — paste this block here
+  // ------------------------------------------------------
+  const [clients, setClients] = useState([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+
+  const loadClients = async () => {
+  try {
+    setClientsLoading(true);
+
+    // ⭐ FULL TOKEN FALLBACK (same pattern as onShare)
+    const token =
+      (await AsyncStorage.getItem("token")) ||
+      (await AsyncStorage.getItem("userToken")) ||
+      (await AsyncStorage.getItem("authToken")) ||
+      (await AsyncStorage.getItem("providerToken"));
+
+    if (!token) {
+      console.log("❌ No token found for client fetch");
+      return;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/customers`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token.trim()}`,
+      },
+    });
+
+    const data = await response.json();
+    console.log("🚀 CLIENTS API RESPONSE:", data);
+
+    if (data.success && Array.isArray(data.customers)) {
+      setClients(data.customers);
+    }
+  } catch (err) {
+    console.log("Error loading clients:", err);
+  } finally {
+    setClientsLoading(false);
+  }
+};
+
+
+  // Load on mount
+  React.useEffect(() => {
+    loadClients();
+  }, []);
+  
+  // ------------------------------------------------------
+// ⭐ ALL INVOICE STATE — must appear BEFORE the auto-fill effect
+// ------------------------------------------------------
+
+const scrollToBottom = () => {
+  setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+};
+
+const [businessName, setBusinessName] = useState("ABC Lawn Care");
+const [businessLine2, setBusinessLine2] = useState("Mike Clay Landscaping");
+const [businessAddr1, setBusinessAddr1] = useState("123 Grass Ln");
+const [businessAddr2, setBusinessAddr2] = useState("Big City, New York");
+const [businessPhone, setBusinessPhone] = useState("(555) 555-5555");
+const [businessEmail, setBusinessEmail] = useState("abclawncare@example.com");
+
+const firstClient = clients.length > 0 ? clients[0] : null;
+
+const [clientName, setClientName] = useState(firstClient?.name || "");
+const [clientAddr1, setClientAddr1] = useState(firstClient?.address || "");
+const [clientPhone, setClientPhone] = useState(firstClient?.phone || "");
+const [clientEmail, setClientEmail] = useState(firstClient?.email || "");
+
+const [invoiceNo, setInvoiceNo] = useState("INVO001");
+const [invoiceDate, setInvoiceDate] = useState("Oct 30, 2025");
+const [invoiceDue, setInvoiceDue] = useState("On Receipt");
+const [status, setStatus] = useState("DUE");
+
+const [items, setItems] = useState([
+  { id: "1", title: "", note: "", rate: "", qty: "1" },
+]);
+
+const addRow = () =>
+  setItems((prev) => [
+    ...prev,
+    { id: Date.now().toString(), title: "", note: "", rate: "", qty: "1" },
+  ]);
+
+const removeRow = (id) =>
+  setItems((prev) => (prev.length === 1 ? prev : prev.filter((r) => r.id !== id)));
+
+const editRow = (id, field, val) =>
+  setItems((prev) =>
+    prev.map((r) => (r.id === id ? { ...r, [field]: val } : r))
+  );
+
+const [taxPct, setTaxPct] = useState("7");
+const [paid, setPaid] = useState("");
+
+  
+  // ------------------------------------------------------
+
+
+
+
   // ✅ NEW FIXED scrollToInput()
   const scrollToInput = (key) => {
     const scroll = scrollRef.current;
@@ -110,45 +189,22 @@ export default function InvoiceBuilderScreen({ navigation, route }) {
     });
   };
 
-  const scrollToBottom = () => {
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
-  };
+// ⭐ FIX — Automatically load first client into invoice form
+React.useEffect(() => {
+  if (clients.length > 0 && !clientName) {
+    const c = clients[0];
 
-  const [businessName, setBusinessName] = useState("ABC Lawn Care");
-  const [businessLine2, setBusinessLine2] = useState("Mike Clay Landscaping");
-  const [businessAddr1, setBusinessAddr1] = useState("123 Grass Ln");
-  const [businessAddr2, setBusinessAddr2] = useState("Big City, New York");
-  const [businessPhone, setBusinessPhone] = useState("(555) 555-5555");
-  const [businessEmail, setBusinessEmail] = useState("abclawncare@example.com");
+    setClientName(c.name || "");
+    setClientAddr1(c.address || "");
+    setClientPhone(c.phone || "");
+    setClientEmail(c.email || "");
 
-  const [clientName, setClientName] = useState("Donna Jones");
-  const [clientAddr1, setClientAddr1] = useState("1358 Botsford Dr");
-  const [clientPhone, setClientPhone] = useState("(555) 555-5555");
-  const [clientEmail, setClientEmail] = useState("donnajones@example.com");
+    if (route?.params) {
+      route.params.client = c;
+    }
+  }
+}, [clients]);
 
-  const [invoiceNo, setInvoiceNo] = useState("INVO001");
-  const [invoiceDate, setInvoiceDate] = useState("Oct 30, 2025");
-  const [invoiceDue, setInvoiceDue] = useState("On Receipt");
-  const [status, setStatus] = useState("DUE");
-
-  const [items, setItems] = useState([
-    { id: "1", title: "", note: "", rate: "", qty: "1" },
-  ]);
-
-  const addRow = () =>
-    setItems((prev) => [
-      ...prev,
-      { id: Date.now().toString(), title: "", note: "", rate: "", qty: "1" },
-    ]);
-
-  const removeRow = (id) =>
-    setItems((prev) => (prev.length === 1 ? prev : prev.filter((r) => r.id !== id)));
-
-  const editRow = (id, field, val) =>
-    setItems((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: val } : r)));
-
-  const [taxPct, setTaxPct] = useState("7");
-  const [paid, setPaid] = useState("");
 
   const numbers = useMemo(() => {
     const subtotal = items.reduce((sum, it) => {
@@ -198,44 +254,88 @@ export default function InvoiceBuilderScreen({ navigation, route }) {
   };
 
   const onShare = async () => {
-    try {
-      const payload = buildInvoicePayload();
+  try {
+    const payload = buildInvoicePayload();
 
-      await generateInvoicePDF(payload);
+    // Generate local PDF as usual
+    await generateInvoicePDF(payload);
 
-      const token = await AsyncStorage.getItem("token");
-      const customerId = route?.params?.client?._id;
+    // ⭐ FULL TOKEN FALLBACK (consistent with loadClients)
+    const token =
+      (await AsyncStorage.getItem("token")) ||
+      (await AsyncStorage.getItem("userToken")) ||
+      (await AsyncStorage.getItem("authToken")) ||
+      (await AsyncStorage.getItem("providerToken"));
 
-      if (customerId) {
-        const { items, numbers } = payload;
-
-        await fetch(`${API_BASE_URL}/api/invoices`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            customer: customerId,
-            items: items.map((i) => ({
-              description: i.desc || i.title,
-              qty: i.qty,
-              rate: i.rate,
-              amount:
-                (parseFloat(i.rate) || 0) * (parseFloat(i.qty) || 0),
-            })),
-            subtotal: numbers.subtotal,
-            tax: numbers.tax,
-            total: numbers.total,
-          }),
-        });
-      }
-
-      Alert.alert("Success", "Invoice shared + CRM timeline updated!");
-    } catch (err) {
-      Alert.alert("Error", err.message || "Failed to share invoice");
+    if (!token) {
+      Alert.alert("Authentication Error", "No valid token found. Please log in again.");
+      return;
     }
-  };
+
+    const customerId = route?.params?.client?._id;
+
+    if (!customerId) {
+      Alert.alert("Missing Client", "Select a client before sharing invoice.");
+      return;
+    }
+
+    const {
+      items,
+      numbers,
+      invoiceMeta,
+      taxPct,
+      paid,
+    } = payload;
+
+    const response = await fetch(`${API_BASE_URL}/api/invoices`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token.trim()}`,
+      },
+      body: JSON.stringify({
+        customer: customerId,
+
+        items: items.map((i) => ({
+          description: i.desc || i.title || "",
+          qty: Number(i.qty) || 1,
+          rate: Number(i.rate) || 0,
+          amount: (Number(i.rate) || 0) * (Number(i.qty) || 0),
+        })),
+
+        subtotal: numbers.subtotal,
+        tax: numbers.tax,
+        taxPct: Number(taxPct) || 0,
+        total: numbers.total,
+        paid: Number(paid) || 0,
+        balance: numbers.balance,
+
+        invoiceNumber: invoiceMeta.number,
+        issueDate: invoiceMeta.date,
+        dueDate: invoiceMeta.due,
+        status: status || "DUE",
+        notes: "",
+      }),
+    });
+
+    if (!response.ok) {
+      const errTxt = await response.text();
+      console.log("🔥 Invoice create error:", errTxt);
+      throw new Error("Invoice could not be saved to CRM");
+    }
+
+    const created = await response.json();
+    const invoiceId = created?.invoice?._id;
+
+    console.log("Saved Invoice ID:", invoiceId);
+
+    Alert.alert("Success", "Invoice saved + CRM timeline updated!");
+  } catch (err) {
+    console.error("share invoice error:", err);
+    Alert.alert("Error", err.message || "Failed to share invoice");
+  }
+};
+
 
   // -----------------------------------------------------
 
@@ -246,13 +346,20 @@ export default function InvoiceBuilderScreen({ navigation, route }) {
 
   const [clientPickerVisible, setClientPickerVisible] = useState(false);
 
-  const handleSelectClient = (client) => {
-    setClientName(client.name);
-    setClientAddr1(client.address);
-    setClientPhone(client.phone);
-    setClientEmail(client.email);
-    setClientPickerVisible(false);
-  };
+ const handleSelectClient = (client) => {
+  setClientName(client.name);
+  setClientAddr1(client.address);
+  setClientPhone(client.phone);
+  setClientEmail(client.email);
+
+  // 🔥 Save selected client to route params for invoice saving
+  if (route?.params) {
+    route.params.client = client;
+  }
+
+  setClientPickerVisible(false);
+};
+
 
   const y = useRef(new Animated.Value(0)).current;
   const headerOpacity = y.interpolate({
@@ -695,7 +802,7 @@ export default function InvoiceBuilderScreen({ navigation, route }) {
 
             {clients.map((client) => (
               <TouchableOpacity
-                key={client.id}
+                key={client._id}
                 style={[
                   styles.clientRow,
                   {

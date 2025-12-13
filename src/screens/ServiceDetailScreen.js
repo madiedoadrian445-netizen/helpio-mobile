@@ -22,37 +22,25 @@ const { width } = Dimensions.get("window");
 const PADDING_H = 16;
 const HELPIO_BLUE = "#00A6FF";
 
-// --- Mock data ---
-const hero =
-  "https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?q=80&w=1600&auto=format&fit=crop";
-
-const gallery = [
-  "https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?q=80&w=1600&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1582582621959-48d8a5ee9a44?q=80&w=1400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1600573472591-ee6c8e695e44?q=80&w=1400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1598300050281-9b2cb7d3e4a7?q=80&w=1400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1622288438858-3c1b1889ff33?q=80&w=1400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1600585154356-596af9009e82?q=80&w=1400&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1623128535094-30c515b0a867?q=80&w=1400&auto=format&fit=crop",
-];
-
 export default function ServiceDetailScreen({ route, navigation }) {
-  // ---- Replace with props/route data ----
-  const companyName = "Veloz Contractors";
-  const category = "Professional Services";
-  const verified = true;
-  const cityLine = "Luxury Bathroom Remodel — South Beach, Miami";
-  const startingPrice = 1500;
-  const rating = 4.9;
-  const ratingCount = 2;
-  const heroSrc = route?.params?.hero || hero;
-  const gallerySrc = route?.params?.gallery || gallery;
+  const { service } = route.params;
 
-  // ✅ Lightbox state
+  const rating = service.rating ?? 5;
+  const ratingCount = service.ratingCount ?? 0;
+
+  const companyName = service.title;
+  const category = service.category;
+  const verified = service.isVerified;
+  const cityLine = service.description;
+  const startingPrice = service.price;
+  const heroSrc = service.photos?.[0];
+  const gallerySrc = service.photos || [];
+
+  // Lightbox state
   const [visible, setVisible] = React.useState(false);
   const [currentIndex, setCurrentIndex] = React.useState(0);
 
-  // Pulse animation for CTA
+  // Pulse animation
   const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.loop(
@@ -63,7 +51,7 @@ export default function ServiceDetailScreen({ route, navigation }) {
     ).start();
   }, [pulse]);
 
-  // Fade animation for status bar area
+  // Fading header
   const scrollY = useRef(new Animated.Value(0)).current;
   const blurOpacity = scrollY.interpolate({
     inputRange: [0, 200],
@@ -71,14 +59,14 @@ export default function ServiceDetailScreen({ route, navigation }) {
     extrapolate: "clamp",
   });
 
-  // Rounded card width
+  // Gallery card width
   const cardW = useMemo(() => Math.min(280, width * 0.72), []);
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      {/* ===== Cinematic fading header blur ===== */}
+      {/* ===== HEADER BLUR ===== */}
       <Animated.View style={[styles.statusBlur, { opacity: blurOpacity }]}>
         <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFill} />
       </Animated.View>
@@ -99,6 +87,7 @@ export default function ServiceDetailScreen({ route, navigation }) {
               colors={["rgba(0,0,0,0.45)", "rgba(0,0,0,0)"]}
               style={StyleSheet.absoluteFill}
             />
+
             <View style={styles.titleBandWrap}>
               <BlurView intensity={55} tint="dark" style={styles.titleBandBlur}>
                 <View style={styles.titleInner}>
@@ -106,19 +95,24 @@ export default function ServiceDetailScreen({ route, navigation }) {
                     {companyName}
                   </Text>
 
+                  {/* ===== META ROW ===== */}
                   <View style={styles.metaRow}>
+
                     {verified && (
                       <View style={styles.verifiedPill}>
                         <View style={styles.badgeDot} />
                         <Text style={styles.verifiedText}>Helpio Verified</Text>
                       </View>
                     )}
+
                     <Text style={styles.metaDot}>•</Text>
                     <Text style={styles.metaText}>{category}</Text>
                     <Text style={styles.metaDot}>•</Text>
+
                     <Text style={styles.metaText}>
-                      {"★".repeat(5)} <Text style={styles.muted}>({ratingCount})</Text>
+                      {"★".repeat(rating)} <Text style={styles.muted}>({ratingCount})</Text>
                     </Text>
+
                   </View>
                 </View>
               </BlurView>
@@ -180,7 +174,7 @@ export default function ServiceDetailScreen({ route, navigation }) {
           </ScrollView>
         </View>
 
-        {/* ===== MAP SECTION (Apple Style) ===== */}
+        {/* ===== MAP ===== */}
         <View style={[styles.sectionWrap, { paddingTop: 8, paddingBottom: 40 }]}>
           <Text style={styles.sectionTitle}>Approximate Location</Text>
 
@@ -190,37 +184,26 @@ export default function ServiceDetailScreen({ route, navigation }) {
               style={StyleSheet.absoluteFill}
               provider={PROVIDER_DEFAULT}
               initialRegion={{
-                latitude: 25.7617, // Miami
+                latitude: 25.7617,
                 longitude: -80.1918,
                 latitudeDelta: 0.05,
                 longitudeDelta: 0.05,
               }}
               showsUserLocation={false}
-              pitchEnabled={false}
-              rotateEnabled={false}
-              zoomEnabled={true} // ✅ allow pinch zoom
-              scrollEnabled={true} // ✅ allow dragging/moving
             >
               <Marker
                 coordinate={{ latitude: 25.7617, longitude: -80.1918 }}
                 title={companyName}
                 description="Approximate Service Area"
-                pinColor="#00A6FF"
+                pinColor={HELPIO_BLUE}
               />
             </MapView>
           </View>
         </View>
       </Animated.ScrollView>
 
-      {/* ===== CENTERED FROSTED CTA ===== */}
-      <Animated.View
-        style={[
-          styles.ctaWrap,
-          {
-            transform: [{ scale: pulse }],
-          },
-        ]}
-      >
+      {/* ===== CTA BUTTON ===== */}
+      <Animated.View style={[styles.ctaWrap, { transform: [{ scale: pulse }] }]}>
         <BlurView intensity={40} tint="light" style={styles.ctaBlur}>
           <TouchableOpacity
             activeOpacity={0.85}
@@ -238,7 +221,7 @@ export default function ServiceDetailScreen({ route, navigation }) {
         </BlurView>
       </Animated.View>
 
-      {/* ===== LIGHTBOX VIEWER ===== */}
+      {/* ===== LIGHTBOX ===== */}
       <ImageViewing
         images={gallerySrc.map((uri) => ({ uri }))}
         imageIndex={currentIndex}
@@ -253,7 +236,7 @@ export default function ServiceDetailScreen({ route, navigation }) {
   );
 }
 
-// ===== UTILITIES =====
+// ===== UTIL =====
 function formatPrice(n) {
   try {
     return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
@@ -276,15 +259,20 @@ const styles = StyleSheet.create({
 
   heroWrap: { width: "100%", height: width * 1.05, backgroundColor: "#121621" },
   heroImg: { flex: 1, justifyContent: "flex-end" },
+
   titleBandWrap: { paddingHorizontal: PADDING_H, paddingBottom: 24 },
+
   titleBandBlur: {
     borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
   },
+
   titleInner: { paddingVertical: 14, paddingHorizontal: 16 },
+
   title: { color: "#fff", fontSize: 28, fontWeight: "800", letterSpacing: 0.3 },
+
   metaRow: {
     marginTop: 6,
     flexDirection: "row",
@@ -292,6 +280,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
+
   verifiedPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -302,6 +291,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
   },
+
   badgeDot: {
     width: 8,
     height: 8,
@@ -309,10 +299,29 @@ const styles = StyleSheet.create({
     backgroundColor: HELPIO_BLUE,
     marginRight: 6,
   },
+
   verifiedText: { color: "#EAF2FF", fontWeight: "700" },
+
   metaDot: { color: "rgba(255,255,255,0.5)", marginHorizontal: 2 },
-  metaText: { color: "rgba(255,255,255,0.9)", fontWeight: "600" },
-  fadeDivider: { position: "absolute", left: 0, right: 0, bottom: -1, height: 48 },
+
+  metaText: {
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "600",
+  },
+
+  muted: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  fadeDivider: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: -1,
+    height: 48,
+  },
 
   sectionWrap: {
     backgroundColor: "#0F141F",
@@ -320,6 +329,7 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 14,
   },
+
   sectionTitle: {
     color: "#F5F8FF",
     fontSize: 22,
@@ -327,7 +337,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
     marginBottom: 8,
   },
-  aboutLine: { color: "#C6D3EA", fontSize: 16, lineHeight: 22, marginBottom: 14 },
+
+  aboutLine: {
+    color: "#C6D3EA",
+    fontSize: 16,
+    lineHeight: 22,
+    marginBottom: 14,
+  },
 
   priceCard: {
     backgroundColor: "rgba(255,255,255,0.06)",
@@ -337,8 +353,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
   },
+
   priceHint: { color: "#BBD0FF", fontSize: 15, marginBottom: 6 },
-  priceValue: { fontSize: 32, fontWeight: "900", color: HELPIO_BLUE },
+
+  priceValue: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: HELPIO_BLUE,
+  },
 
   galleryBg: {
     position: "absolute",
@@ -348,6 +370,7 @@ const styles = StyleSheet.create({
     height: 120,
     opacity: 0.5,
   },
+
   card: {
     height: 180,
     marginRight: 14,
@@ -362,8 +385,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
   },
+
   cardImg: { width: "100%", height: "100%" },
-  cardShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.15)" },
+
+  cardShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.15)",
+  },
+
   cardFooter: {
     position: "absolute",
     left: 10,
@@ -375,18 +404,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.35)",
   },
-  cardFootText: { color: "#EAF2FF", fontWeight: "700", fontSize: 12, letterSpacing: 0.3 },
+
+  cardFootText: {
+    color: "#EAF2FF",
+    fontWeight: "700",
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
 
   ctaWrap: {
     position: "absolute",
     bottom: Platform.select({ ios: 35, android: 30 }),
     alignSelf: "center",
   },
+
   ctaBlur: {
     borderRadius: 30,
     overflow: "hidden",
     padding: 2,
   },
+
   ctaBtn: {
     height: 60,
     paddingHorizontal: 30,
@@ -394,21 +431,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   ctaText: {
-    color: "#ffffffff",
+    color: "#fff",
     fontWeight: "800",
     fontSize: 18,
     letterSpacing: 0.3,
   },
+
   mapContainer: {
     height: 220,
     marginTop: 12,
     borderRadius: 20,
     overflow: "hidden",
+    backgroundColor: "#EDEFF3",
     shadowColor: "#000",
     shadowOpacity: 0.15,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
-    backgroundColor: "#EDEFF3",
   },
 });

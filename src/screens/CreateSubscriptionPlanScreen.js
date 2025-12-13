@@ -1,5 +1,5 @@
 // src/screens/CreateSubscriptionPlanScreen.js
-import React, { useState, memo } from "react";
+import React, { useState, memo, useEffect } from "react";
 import {
   View,
   Text,
@@ -16,11 +16,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../ThemeContext";
+import { api } from "../config/api";
 
 const HELP_BLUE = "#00A6FF";
 
 /* -------------------------------------------------------
-   ⭐ MEMOIZED COMPONENTS — FIX FOR KEYBOARD HIDING ISSUE
+   ⭐ MEMOIZED COMPONENTS
 --------------------------------------------------------*/
 
 const CardBase = ({ children, style, isLight }) => (
@@ -76,7 +77,14 @@ const SegChipBase = ({ label, active, onPress, compact, isLight, theme }) => (
 );
 const SegChip = memo(SegChipBase);
 
-const ToggleRowBase = ({ label, description, value, onValueChange, theme, isLight }) => (
+const ToggleRowBase = ({
+  label,
+  description,
+  value,
+  onValueChange,
+  theme,
+  isLight,
+}) => (
   <View style={styles.toggleRow}>
     <View style={{ flex: 1 }}>
       <Text style={[styles.rowLabel, { color: theme.text }]}>{label}</Text>
@@ -108,7 +116,7 @@ export default function CreateSubscriptionPlanScreen({ navigation, route }) {
   const { darkMode, theme } = useTheme();
   const isLight = !darkMode;
 
-  const client = route?.params?.client;
+  const existingPlan = route?.params?.plan || null;
 
   const [planName, setPlanName] = useState("");
   const [description, setDescription] = useState("");
@@ -132,35 +140,130 @@ export default function CreateSubscriptionPlanScreen({ navigation, route }) {
 
   const [minCyclesLock, setMinCyclesLock] = useState(false);
   const [minCycles, setMinCycles] = useState("3");
-const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
 
-  const onCreatePlan = () => {
+  const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  /* -------------------------------------------------------
+     PREFILL EDIT MODE (patched for planName)
+  --------------------------------------------------------*/
+  useEffect(() => {
+    if (!existingPlan) return;
+
+    setPlanName(existingPlan.planName || "");
+    setDescription(existingPlan.description || "");
+
+    if (existingPlan.price != null) {
+      setPrice(String(existingPlan.price));
+    }
+
+    if (existingPlan.billingFrequency) {
+      setBillingFrequency(existingPlan.billingFrequency);
+    }
+
+    if (existingPlan.customInterval?.every != null) {
+      setCustomIntervalCount(String(existingPlan.customInterval.every));
+    }
+
+    if (existingPlan.customInterval?.unit) {
+      setCustomIntervalUnit(existingPlan.customInterval.unit);
+    }
+
+    if (typeof existingPlan.autoBilling === "boolean") {
+      setAutoBilling(existingPlan.autoBilling);
+    }
+
+    if (existingPlan.maxCycles != null) {
+      setMaxCycles(String(existingPlan.maxCycles));
+    }
+
+    if (typeof existingPlan.prorateChanges === "boolean") {
+      setProrateChanges(existingPlan.prorateChanges);
+    }
+
+    if (existingPlan.trial?.length != null) {
+      setHasTrial(true);
+      setTrialLength(String(existingPlan.trial.length));
+      setTrialUnit(existingPlan.trial.unit || "days");
+    }
+
+    if (typeof existingPlan.allowPause === "boolean") {
+      setAllowPause(existingPlan.allowPause);
+    }
+
+    if (existingPlan.reminder?.daysBefore != null) {
+      setReminderEnabled(true);
+      setReminderDays(existingPlan.reminder.daysBefore);
+    }
+
+    if (existingPlan.minCyclesLock?.minCycles != null) {
+      setMinCyclesLock(true);
+      setMinCycles(String(existingPlan.minCyclesLock.minCycles));
+    }
+  }, [existingPlan]);
+
+  /* -------------------------------------------------------
+     PATCHED PAYLOAD (uses planName)
+  --------------------------------------------------------*/
+  const onCreatePlan = async () => {
+    if (submitting) return;
+
+    const trimmedName = planName.trim();
+    const numericPrice = Number(price || "0");
+
+    if (!trimmedName || !numericPrice) return;
+
     const payload = {
-      planName,
+      planName: trimmedName, // 🔥 FIXED
       description,
-      price,
+      price: numericPrice,
       billingFrequency,
       customInterval:
         billingFrequency === "custom"
-          ? { every: Number(customIntervalCount || "1"), unit: customIntervalUnit }
+          ? {
+              every: Number(customIntervalCount || "1"),
+              unit: customIntervalUnit,
+            }
           : null,
       autoBilling,
       maxCycles: maxCycles ? Number(maxCycles) : null,
       prorateChanges,
       hasTrial,
-      trial: hasTrial ? { length: Number(trialLength || "0"), unit: trialUnit } : null,
+      trial: hasTrial
+        ? { length: Number(trialLength || "0"), unit: trialUnit }
+        : null,
       allowPause,
       reminder: reminderEnabled ? { daysBefore: reminderDays } : null,
-      minCyclesLock: minCyclesLock ? { minCycles: Number(minCycles || "0") } : null,
-      client,
+      minCyclesLock: minCyclesLock
+        ? { minCycles: Number(minCycles || "0") }
+        : null,
     };
 
-    console.log("Create subscription plan:", payload);
-    navigation.goBack();
+    try {
+      setSubmitting(true);
+
+      if (existingPlan?._id) {
+        await api.put(`/api/subscription-plans/${existingPlan._id}`, payload);
+      } else {
+        await api.post(`/api/subscription-plans`, payload);
+      }
+
+      navigation.goBack();
+    } catch (err) {
+      console.log(
+        "❌ Error saving subscription plan",
+        err.response?.data || err.message
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const onSaveDraft = () => navigation.goBack();
 
+  /* -------------------------------------------------------
+     RENDER
+  --------------------------------------------------------*/
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -174,16 +277,28 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
         style={StyleSheet.absoluteFill}
       />
 
+      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 5 }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <BlurView tint={isLight ? "light" : "dark"} intensity={40} style={styles.backBlur}>
-            <Ionicons name="chevron-back" size={22} color={isLight ? "#0a0a0a" : "#f5f5f5"} />
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <BlurView
+            tint={isLight ? "light" : "dark"}
+            intensity={40}
+            style={styles.backBlur}
+          >
+            <Ionicons
+              name="chevron-back"
+              size={22}
+              color={isLight ? "#0a0a0a" : "#f5f5f5"}
+            />
           </BlurView>
         </TouchableOpacity>
 
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-            New Subscription Plan
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            {existingPlan ? "Edit Subscription Plan" : "New Subscription Plan"}
           </Text>
           <Text style={[styles.headerSubtitle, { color: theme.subtleText }]}>
             Helpio Pay • Recurring
@@ -193,6 +308,7 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
         <View style={{ width: 40 }} />
       </View>
 
+      {/* Content */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -206,6 +322,7 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
             paddingTop: insets.top - 55,
           }}
         >
+          {/* ---- Plan Details ---- */}
           <SectionLabel
             title="Plan Details"
             subtitle="What your client sees on their invoice and receipts."
@@ -213,7 +330,9 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
           />
           <Card isLight={isLight}>
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.subtleText }]}>Plan name</Text>
+              <Text style={[styles.inputLabel, { color: theme.subtleText }]}>
+                Plan name
+              </Text>
               <TextInput
                 value={planName}
                 onChangeText={setPlanName}
@@ -224,13 +343,19 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.subtleText }]}>Description</Text>
+              <Text style={[styles.inputLabel, { color: theme.subtleText }]}>
+                Description
+              </Text>
               <TextInput
                 value={description}
                 onChangeText={setDescription}
                 placeholder="Optional details your client will see"
                 placeholderTextColor={isLight ? "#A1A1AA" : "#6e6e73"}
-                style={[styles.textInput, styles.textArea, { color: theme.text }]}
+                style={[
+                  styles.textInput,
+                  styles.textArea,
+                  { color: theme.text },
+                ]}
                 multiline
               />
             </View>
@@ -255,11 +380,13 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
             </View>
           </Card>
 
+          {/* ---- Billing Frequency ---- */}
           <SectionLabel
             title="Billing frequency"
             subtitle="How often your client is charged."
             theme={theme}
           />
+
           <Card isLight={isLight}>
             <View style={styles.chipRow}>
               <SegChip
@@ -294,12 +421,17 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
 
             {billingFrequency === "custom" && (
               <View style={styles.customRow}>
-                <Text style={[styles.rowLabel, { color: theme.text }]}>Every</Text>
+                <Text style={[styles.rowLabel, { color: theme.text }]}>
+                  Every
+                </Text>
                 <TextInput
                   value={customIntervalCount}
                   onChangeText={setCustomIntervalCount}
                   keyboardType="number-pad"
-                  style={[styles.customNumberInput, { color: theme.text }]}
+                  style={[
+                    styles.customNumberInput,
+                    { color: theme.text },
+                  ]}
                 />
                 <View style={styles.customUnitRow}>
                   <SegChip
@@ -332,7 +464,7 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
 
             <ToggleRow
               label="Automatic billing"
-              description="Charge the saved payment method automatically each cycle."
+              description="Charge saved payment method automatically."
               value={autoBilling}
               onValueChange={setAutoBilling}
               isLight={isLight}
@@ -357,7 +489,7 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
 
             <ToggleRow
               label="Prorate changes"
-              description="Adjust charges automatically when upgrading or downgrading plans."
+              description="Auto-adjust charges when changing plans."
               value={prorateChanges}
               onValueChange={setProrateChanges}
               isLight={isLight}
@@ -365,11 +497,13 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
             />
           </Card>
 
+          {/* ---- Trial ---- */}
           <SectionLabel
             title="Free trial"
-            subtitle="Optionally let clients try the service before billing."
+            subtitle="Let clients try before billing."
             theme={theme}
           />
+
           <Card isLight={isLight}>
             <ToggleRow
               label="Offer free trial"
@@ -381,12 +515,17 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
 
             {hasTrial && (
               <View style={styles.customRow}>
-                <Text style={[styles.rowLabel, { color: theme.text }]}>Trial length</Text>
+                <Text style={[styles.rowLabel, { color: theme.text }]}>
+                  Trial length
+                </Text>
                 <TextInput
                   value={trialLength}
                   onChangeText={setTrialLength}
                   keyboardType="number-pad"
-                  style={[styles.customNumberInput, { color: theme.text }]}
+                  style={[
+                    styles.customNumberInput,
+                    { color: theme.text },
+                  ]}
                 />
                 <View style={styles.customUnitRow}>
                   <SegChip
@@ -410,15 +549,17 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
             )}
           </Card>
 
+          {/* ---- Client Options ---- */}
           <SectionLabel
             title="Client options"
-            subtitle="Control how flexible this plan is for your clients."
+            subtitle="Control flexibility for clients."
             theme={theme}
           />
+
           <Card isLight={isLight}>
             <ToggleRow
               label="Allow clients to pause"
-              description="Let clients temporarily pause billing instead of canceling."
+              description="Let clients pause instead of cancel."
               value={allowPause}
               onValueChange={setAllowPause}
               isLight={isLight}
@@ -427,7 +568,7 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
 
             <ToggleRow
               label="Send reminder before charge"
-              description="Email your client before each automatic charge."
+              description="Email reminder before each charge."
               value={reminderEnabled}
               onValueChange={setReminderEnabled}
               isLight={isLight}
@@ -465,37 +606,36 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
 
             <ToggleRow
               label="Require minimum commitment"
-              description="Lock in a minimum number of billing cycles before canceling."
+              description="Lock in minimum cycles before canceling."
               value={minCyclesLock}
-              onValueChange={setMinCyclesLock}
+              onValueChange={() => setMinCyclesLock(!minCyclesLock)}
               isLight={isLight}
               theme={theme}
             />
-{minCyclesLock && (
-  <View style={[styles.row, { marginTop: 8 }]}>
-    <View style={{ flexDirection: "row", alignItems: "center" }}>
-      <Text style={[styles.rowLabel, { color: theme.text }]}>
-        Minimum cycles
-      </Text>
 
-      <TextInput
-        value={minCycles}
-        onChangeText={setMinCycles}
-        keyboardType="number-pad"
-        style={[styles.minCyclesInput, { color: theme.text }]}
-
-        // ⭐ ADDED FIX ⭐
-        onFocus={() => setIsMinCyclesFocused(true)}
-        onBlur={() => setIsMinCyclesFocused(false)}
-      />
-    </View>
-  </View>
-)}
-
+            {minCyclesLock && (
+              <View style={[styles.row, { marginTop: 8 }]}>
+                <Text style={[styles.rowLabel, { color: theme.text }]}>
+                  Minimum cycles
+                </Text>
+                <TextInput
+                  value={minCycles}
+                  onChangeText={setMinCycles}
+                  keyboardType="number-pad"
+                  style={[
+                    styles.minCyclesInput,
+                    { color: theme.text },
+                  ]}
+                  onFocus={() => setIsMinCyclesFocused(true)}
+                  onBlur={() => setIsMinCyclesFocused(false)}
+                />
+              </View>
+            )}
           </Card>
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* ---- Bottom Bar ---- */}
       <View style={[styles.bottomBarWrap, { paddingBottom: 0 }]}>
         <BlurView
           intensity={40}
@@ -524,7 +664,9 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
               style={styles.primaryGradient}
             >
               <Ionicons name="checkmark" size={18} color="#fff" />
-              <Text style={styles.primaryText}>Create Plan</Text>
+              <Text style={styles.primaryText}>
+                {existingPlan ? "Save Changes" : "Create Plan"}
+              </Text>
             </LinearGradient>
           </TouchableOpacity>
         </BlurView>
@@ -534,7 +676,7 @@ const [isMinCyclesFocused, setIsMinCyclesFocused] = useState(false);
 }
 
 /* -------------------------------------------------------
-   STYLES — UNTOUCHED
+   STYLES (UNCHANGED)
 --------------------------------------------------------*/
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -599,10 +741,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.8)",
     marginTop: 2,
   },
-  currencySymbol: { fontSize: 16, fontWeight: "700", color: "#6E6E73", marginRight: 2 },
+  currencySymbol: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#6E6E73",
+    marginRight: 2,
+  },
   priceInput: { flex: 1, fontSize: 18, fontWeight: "700" },
 
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 8,
+  },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -615,7 +767,11 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: "600" },
   chipTextCompact: { fontSize: 11 },
 
-  customRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  customRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
   rowLabel: { fontSize: 13, fontWeight: "600", marginRight: 8 },
   customNumberInput: {
     width: 54,
@@ -682,6 +838,17 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: "hidden",
   },
-  primaryGradient: { flex: 1, borderRadius: 20, alignItems: "center", justifyContent: "center", flexDirection: "row" },
-  primaryText: { color: "#fff", fontSize: 15, fontWeight: "700", marginLeft: 6 },
+  primaryGradient: {
+    flex: 1,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+  primaryText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    marginLeft: 6,
+  },
 });

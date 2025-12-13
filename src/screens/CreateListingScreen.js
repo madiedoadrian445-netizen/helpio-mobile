@@ -25,9 +25,10 @@ import { useTheme } from "../ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { BlurView } from "expo-blur";
+
 const ITEM_SIZE = 100;
 const HELP_IO_BLUE = "#00A6FF";
-const BOTTOM_SCROLL_DELTA = 70; // ~medium scroll as you picked (option 2)
+const BOTTOM_SCROLL_DELTA = 70;
 
 export default function CreateListingScreen({ navigation }) {
   const { darkMode, theme } = useTheme();
@@ -52,23 +53,20 @@ export default function CreateListingScreen({ navigation }) {
 
   const scrollRef = useRef(null);
 
-  // Track current scroll position so we can apply a relative micro-scroll
+  /* TRACK SCROLL OFFSET */
   useEffect(() => {
     const id = scrollY.addListener(({ value }) => {
       setScrollOffset(value || 0);
     });
-    return () => {
-      scrollY.removeListener(id);
-    };
+    return () => scrollY.removeListener(id);
   }, [scrollY]);
 
-  // Micro-scroll ONLY for bottom inputs (Price + Location)
+  /* MICRO SCROLL FIX */
   const handleBottomFieldFocus = () => {
     if (!scrollRef.current) return;
 
     const targetY = scrollOffset + BOTTOM_SCROLL_DELTA;
 
-    // KeyboardAwareScrollView exposes scrollToPosition; fall back to scrollTo
     if (scrollRef.current.scrollToPosition) {
       scrollRef.current.scrollToPosition(0, targetY, true);
     } else if (scrollRef.current.scrollTo) {
@@ -76,7 +74,7 @@ export default function CreateListingScreen({ navigation }) {
     }
   };
 
-  /* ------------ Validation & Continue ------------ */
+  /* CONTINUE → PREVIEW */
   const handlePreview = () => {
     if (!title || !price || images.length === 0) {
       Alert.alert(
@@ -98,7 +96,7 @@ export default function CreateListingScreen({ navigation }) {
     });
   };
 
-  /* ------------ Media pickers ------------ */
+  /* PICK MEDIA */
   const pickMedia = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -118,7 +116,7 @@ export default function CreateListingScreen({ navigation }) {
       let newVideo = video;
 
       result.assets.forEach((asset) => {
-        if (asset.type && asset.type.startsWith("video")) {
+        if (asset.type?.startsWith("video")) {
           if (!newVideo) newVideo = asset.uri;
         } else {
           newPhotos.push(asset.uri);
@@ -130,6 +128,7 @@ export default function CreateListingScreen({ navigation }) {
     }
   };
 
+  /* RECORD VIDEO */
   const recordVideo = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
@@ -143,12 +142,10 @@ export default function CreateListingScreen({ navigation }) {
       quality: 1,
     });
 
-    if (!result.canceled) {
-      setVideo(result.assets[0].uri);
-    }
+    if (!result.canceled) setVideo(result.assets[0].uri);
   };
 
-  /* ------------ Drag item renderer ------------ */
+  /* DRAGGABLE IMAGE RENDERER */
   const renderImage = ({ item, drag, isActive }) => (
     <AnimatedReanimated.View
       entering={ZoomIn}
@@ -169,27 +166,18 @@ export default function CreateListingScreen({ navigation }) {
 
       <TouchableOpacity
         style={styles.removeButton}
-        onPress={() =>
-          setImages((prev) => prev.filter((uri) => uri !== item))
-        }
+        onPress={() => setImages((prev) => prev.filter((uri) => uri !== item))}
       >
         <Ionicons name="close-circle" size={22} color="#fff" />
       </TouchableOpacity>
     </AnimatedReanimated.View>
   );
 
-  /* ------------ Main UI Renderer ------------ */
+  /* RENDER UI BLOCK */
   const renderHeader = () => (
     <View>
-      {/* HERO */}
-      <View
-        style={[
-          styles.heroBlock,
-          {
-            paddingTop: Platform.OS === "ios" ? -60 : -20,
-          },
-        ]}
-      >
+      {/* --- HERO ------------------------------------------------------- */}
+      <View style={[styles.heroBlock, { paddingTop: Platform.OS === "ios" ? -60 : -20 }]}>
         <Text style={[styles.heroTitle, { color: theme.text }]}>New listing</Text>
         <Text style={[styles.heroSubtitle, { color: theme.subtleText }]}>
           Create a clean, trusted service listing your clients will love.
@@ -202,27 +190,16 @@ export default function CreateListingScreen({ navigation }) {
           ]}
         >
           <View style={[styles.stepDot, { backgroundColor: HELP_IO_BLUE }]} />
-          <Text style={[styles.stepText, { color: HELP_IO_BLUE }]}>
-            Step 1 · Details
-          </Text>
+          <Text style={[styles.stepText, { color: HELP_IO_BLUE }]}>Step 1 · Details</Text>
         </View>
       </View>
 
-      {/* BUSINESS */}
+      {/* --- BUSINESS --------------------------------------------------- */}
       <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>
-          BUSINESS
-        </Text>
-        <View
-          style={[
-            styles.cardGroup,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-        >
+        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>BUSINESS</Text>
+        <View style={[styles.cardGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.cardRow}>
-            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>
-              Name
-            </Text>
+            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Name</Text>
             <TextInput
               style={[styles.cardRowInput, { color: theme.text }]}
               placeholder="Enter your business name"
@@ -234,34 +211,18 @@ export default function CreateListingScreen({ navigation }) {
         </View>
       </View>
 
-      {/* MEDIA */}
+      {/* --- MEDIA ------------------------------------------------------ */}
       <View style={styles.section}>
         <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>MEDIA</Text>
 
-        <View
-          style={[
-            styles.cardGroup,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-        >
-          {images.length === 0 && !video && (
+        <View style={[styles.cardGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          {images.length === 0 && !video ? (
             <View style={styles.mediaEmptyState}>
-              <View
-                style={[
-                  styles.mediaIconCircle,
-                  { backgroundColor: darkMode ? "#202024" : "#EFF3FA" },
-                ]}
-              >
-                <Ionicons
-                  name="camera-outline"
-                  size={26}
-                  color={darkMode ? "#F5F5F7" : "#222222"}
-                />
+              <View style={[styles.mediaIconCircle, { backgroundColor: darkMode ? "#202024" : "#EFF3FA" }]}>
+                <Ionicons name="camera-outline" size={26} color={darkMode ? "#F5F5F7" : "#222"} />
               </View>
 
-              <Text style={[styles.mediaTitle, { color: theme.text }]}>
-                Add photos and video
-              </Text>
+              <Text style={[styles.mediaTitle, { color: theme.text }]}>Add photos and video</Text>
               <Text style={[styles.mediaSubtitle, { color: theme.subtleText }]}>
                 Listings with photos perform better. Add up to 10 photos and 1 video.
               </Text>
@@ -278,43 +239,25 @@ export default function CreateListingScreen({ navigation }) {
                 <TouchableOpacity
                   style={[
                     styles.secondaryMediaBtn,
-                    {
-                      borderColor: darkMode ? "#3F3F46" : "#D6D6D6",
-                      backgroundColor: darkMode ? "#151516" : "#F5F5F7",
-                    },
+                    { borderColor: darkMode ? "#3F3F46" : "#D6D6D6", backgroundColor: darkMode ? "#151516" : "#F5F5F7" },
                   ]}
                   onPress={recordVideo}
                 >
-                  <Ionicons
-                    name="videocam-outline"
-                    size={18}
-                    color={darkMode ? "#F5F5F7" : "#222222"}
-                  />
-                  <Text
-                    style={[
-                      styles.secondaryMediaBtnText,
-                      { color: darkMode ? "#F5F5F7" : "#222222" },
-                    ]}
-                  >
-                    Record video
-                  </Text>
+                  <Ionicons name="videocam-outline" size={18} color={darkMode ? "#F5F5F7" : "#222"} />
+                  <Text style={[styles.secondaryMediaBtnText, { color: darkMode ? "#F5F5F7" : "#222" }]}>Record video</Text>
                 </TouchableOpacity>
               </View>
             </View>
-          )}
-
-          {(images.length > 0 || video) && (
+          ) : (
             <>
               <View style={styles.mediaHeaderRow}>
-                <Text style={[styles.mediaHeaderTitle, { color: theme.text }]}>
-                  Library
-                </Text>
+                <Text style={[styles.mediaHeaderTitle, { color: theme.text }]}>Library</Text>
                 <Text style={[styles.mediaCounter, { color: theme.subtleText }]}>
                   Photos {images.length}/10 · Video {video ? "1/1" : "0/1"}
                 </Text>
               </View>
 
-              {/* Photo list */}
+              {/* Draggable photo list */}
               <View style={{ height: ITEM_SIZE + 32, marginTop: 10 }}>
                 <DraggableFlatList
                   data={images}
@@ -330,24 +273,14 @@ export default function CreateListingScreen({ navigation }) {
 
               <View style={styles.mediaButtonsRowCompact}>
                 <TouchableOpacity style={styles.textLinkBtn} onPress={pickMedia}>
-                  <Ionicons
-                    name="add-circle-outline"
-                    size={18}
-                    color={HELP_IO_BLUE}
-                    style={{ marginRight: 4 }}
-                  />
+                  <Ionicons name="add-circle-outline" size={18} color={HELP_IO_BLUE} style={{ marginRight: 4 }} />
                   <Text style={[styles.textLinkBtnText, { color: HELP_IO_BLUE }]}>
                     Add more media
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.textLinkBtn} onPress={recordVideo}>
-                  <Ionicons
-                    name={video ? "videocam" : "videocam-outline"}
-                    size={18}
-                    color={HELP_IO_BLUE}
-                    style={{ marginRight: 4 }}
-                  />
+                  <Ionicons name={video ? "videocam" : "videocam-outline"} size={18} color={HELP_IO_BLUE} style={{ marginRight: 4 }} />
                   <Text style={[styles.textLinkBtnText, { color: HELP_IO_BLUE }]}>
                     {video ? "Replace video" : "Add video"}
                   </Text>
@@ -358,23 +291,14 @@ export default function CreateListingScreen({ navigation }) {
         </View>
       </View>
 
-      {/* DETAILS */}
+      {/* --- DETAILS ---------------------------------------------------- */}
       <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>
-          DETAILS
-        </Text>
-
-        <View
-          style={[
-            styles.cardGroup,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-        >
+        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>DETAILS</Text>
+        <View style={[styles.cardGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          
           {/* Title */}
           <View style={[styles.cardRow, styles.cardRowBorder]}>
-            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>
-              Title
-            </Text>
+            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Title</Text>
             <TextInput
               style={[styles.cardRowInput, { color: theme.text }]}
               placeholder="What service are you offering?"
@@ -386,9 +310,7 @@ export default function CreateListingScreen({ navigation }) {
 
           {/* Description */}
           <View style={[styles.cardRow, styles.cardRowBorder, { paddingVertical: 10 }]}>
-            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>
-              Description
-            </Text>
+            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Description</Text>
             <TextInput
               style={[styles.cardRowInputArea, { color: theme.text }]}
               placeholder="Describe your service, what's included, and any important details."
@@ -401,9 +323,7 @@ export default function CreateListingScreen({ navigation }) {
 
           {/* Category */}
           <View style={styles.cardRow}>
-            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>
-              Category
-            </Text>
+            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Category</Text>
             <TextInput
               style={[styles.cardRowInput, { color: theme.text }]}
               placeholder="e.g. Automotive, Home Services"
@@ -415,28 +335,18 @@ export default function CreateListingScreen({ navigation }) {
         </View>
       </View>
 
-      {/* PRICING */}
+      {/* --- PRICING ---------------------------------------------------- */}
       <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>
-          PRICING
-        </Text>
-
-        <View
-          style={[
-            styles.cardGroup,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-        >
+        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>PRICING</Text>
+        <View style={[styles.cardGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          
           <View style={[styles.inlineRow, styles.cardRowBorder]}>
+            
             {/* Price */}
             <View style={styles.inlineItem}>
-              <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>
-                Price
-              </Text>
+              <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Price</Text>
               <View style={styles.inlineInputRow}>
-                <Text style={[styles.currencySymbol, { color: theme.subtleText }]}>
-                  $
-                </Text>
+                <Text style={[styles.currencySymbol, { color: theme.subtleText }]}>$</Text>
                 <TextInput
                   style={[styles.inlineInput, { color: theme.text }]}
                   placeholder="0.00"
@@ -444,23 +354,21 @@ export default function CreateListingScreen({ navigation }) {
                   placeholderTextColor={theme.subtleText}
                   value={price}
                   onChangeText={setPrice}
-                  onFocus={handleBottomFieldFocus} // 🔥 micro-scroll ONLY here
+                  onFocus={handleBottomFieldFocus}
                 />
               </View>
             </View>
 
             {/* Location */}
             <View style={[styles.inlineItem, { marginLeft: 12 }]}>
-              <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>
-                Location
-              </Text>
+              <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Location</Text>
               <TextInput
                 style={[styles.inlineInputAlone, { color: theme.text }]}
                 placeholder="City or area"
                 placeholderTextColor={theme.subtleText}
                 value={location}
                 onChangeText={setLocation}
-                onFocus={handleBottomFieldFocus} // 🔥 and here
+                onFocus={handleBottomFieldFocus}
               />
             </View>
           </View>
@@ -472,49 +380,42 @@ export default function CreateListingScreen({ navigation }) {
           </View>
         </View>
       </View>
+
     </View>
   );
 
+  /* MAIN RETURN */
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
-      {/* Frosted nav (background) */}
+      {/* Frosted nav */}
       <Animated.View style={[styles.navWrapper, { opacity: blurOpacity }]}>
-        <BlurView
-          intensity={70}
-          tint={darkMode ? "dark" : "light"}
-          style={StyleSheet.absoluteFill}
-        />
+        <BlurView intensity={70} tint={darkMode ? "dark" : "light"} style={StyleSheet.absoluteFill} />
       </Animated.View>
 
-      {/* Foreground nav */}
+      {/* Nav content */}
       <View style={styles.navBarContent}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.navSideBtn}
           activeOpacity={0.7}
         >
-          <Text style={[styles.navSideText, { color: HELP_IO_BLUE }]}>
-            Cancel
-          </Text>
+          <Text style={[styles.navSideText, { color: HELP_IO_BLUE }]}>Cancel</Text>
         </TouchableOpacity>
 
         <Text style={[styles.navTitle, { color: HELP_IO_BLUE }]} />
-
         <View style={styles.navSideBtnRight} />
       </View>
 
-      {/* Scroll */}
+      {/* Scrollable content */}
       <KeyboardAwareScrollView
-        innerRef={(ref) => {
-          scrollRef.current = ref;
-        }}
+        innerRef={(ref) => (scrollRef.current = ref)}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         enableOnAndroid={true}
-        extraScrollHeight={0}        // no extra jump
-        enableAutomaticScroll={false} // we control scroll manually
+        extraScrollHeight={0}
+        enableAutomaticScroll={false}
         contentContainerStyle={{
           paddingBottom: 190 + insets.bottom,
           paddingHorizontal: 18,
@@ -531,11 +432,8 @@ export default function CreateListingScreen({ navigation }) {
 
       {/* Continue button */}
       <View style={styles.bottomBarWrapper}>
-        <BlurView
-          intensity={50}
-          tint={darkMode ? "dark" : "light"}
-          style={StyleSheet.absoluteFill}
-        />
+        <BlurView intensity={50} tint={darkMode ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+
         <View style={styles.bottomBarContent}>
           <TouchableOpacity
             activeOpacity={0.9}
@@ -546,15 +444,14 @@ export default function CreateListingScreen({ navigation }) {
           </TouchableOpacity>
         </View>
       </View>
+
     </SafeAreaView>
   );
 }
 
-/* ------------ Styles ------------ */
+/* ---------------- STYLES ---------------- */
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
 
   navWrapper: {
     position: "absolute",
@@ -638,6 +535,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 8,
   },
+
   cardGroup: {
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
@@ -665,6 +563,7 @@ const styles = StyleSheet.create({
     minHeight: 60,
     textAlignVertical: "top",
   },
+
   inlineRow: {
     flexDirection: "row",
     paddingHorizontal: 14,
@@ -692,10 +591,12 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     marginTop: 2,
   },
+
   hint: {
     fontSize: 12,
     lineHeight: 16,
   },
+
   mediaEmptyState: {
     alignItems: "center",
     paddingHorizontal: 16,
@@ -718,6 +619,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 4,
   },
+
   mediaButtonsRow: {
     flexDirection: "row",
     marginTop: 14,
@@ -736,6 +638,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+
   secondaryMediaBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -764,6 +667,7 @@ const styles = StyleSheet.create({
   mediaCounter: {
     fontSize: 12,
   },
+
   mediaButtonsRowCompact: {
     flexDirection: "row",
     justifyContent: "space-between",

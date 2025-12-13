@@ -1,5 +1,5 @@
 // App.js
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import {
   View,
   TouchableWithoutFeedback,
@@ -16,7 +16,8 @@ import { createSharedElementStackNavigator } from "react-navigation-shared-eleme
 import { BlurView } from "expo-blur";
 import { ThemeProvider, useTheme } from "./src/ThemeContext";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import useAuthStore from "./src/store/auth";
+
 
 // Screens
 import ClientDetailScreen from "./src/screens/ClientDetailScreen";
@@ -54,6 +55,9 @@ import SupportScreen from "./src/screens/SupportScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import CreateSubscriptionPlanScreen from "./src/screens/CreateSubscriptionPlanScreen";
 import SubscriptionPlanDetailScreen from "./src/screens/SubscriptionPlanDetailScreen";
+import ProviderOnboardingScreen from "./src/screens/ProviderOnboardingScreen";
+import WebhookEventsScreen from "./src/screens/WebhookEventsScreen";
+
 
 const Tab = createBottomTabNavigator();
 const Stack = createSharedElementStackNavigator();
@@ -63,6 +67,28 @@ const Stack = createSharedElementStackNavigator();
 --------------------------------------------------- */
 function EmptyPlaceholder() {
   return null;
+}
+
+function AuthGate() {
+  const token = useAuthStore((state) => state.token);
+  const user = useAuthStore((state) => state.user);
+  const isHydrated = useAuthStore((state) => state.isHydrated);
+  const hydrate = useAuthStore((state) => state.hydrate);
+
+  useEffect(() => {
+    hydrate();
+  }, []);
+
+  if (!isHydrated) {
+    return null; // or splash loader
+  }
+
+  // Not logged in
+  if (!token || !user) {
+    return <LoginScreen />;
+  }
+
+  return <RootNavigator />;
 }
 
 function TabNavigator({ navigation }) {
@@ -115,8 +141,6 @@ function TabNavigator({ navigation }) {
               Animated.spring(scaleAnim, {
                 toValue: 0.9,
                 useNativeDriver: true,
-                speed: 20,
-                bounciness: 8,
               }).start();
             };
 
@@ -124,8 +148,6 @@ function TabNavigator({ navigation }) {
               Animated.spring(scaleAnim, {
                 toValue: 1,
                 useNativeDriver: true,
-                speed: 20,
-                bounciness: 6,
               }).start(() => navigation.navigate("HelpioPay"));
             };
 
@@ -153,11 +175,10 @@ function TabNavigator({ navigation }) {
                 style={{
                   alignItems: "center",
                   justifyContent: "center",
-                  top: Platform.OS === "ios" ? -10 : -8,
+                  top: -10,
                   width: 90,
                 }}
               >
-                {/* Pulsing circle – clickable */}
                 <TouchableWithoutFeedback
                   onPressIn={handlePressIn}
                   onPressOut={handlePressOut}
@@ -167,17 +188,13 @@ function TabNavigator({ navigation }) {
                       styles.centerButton,
                       {
                         backgroundColor: darkMode ? "#000" : "#FFF",
-                        // Always-visible blue outline
                         borderWidth: 2.2,
                         borderColor: "#00A6FF",
-                        // Subtle glow
                         shadowColor: "#00A6FF",
                         shadowOpacity: 0.22,
                         shadowRadius: 10,
                         shadowOffset: { width: 0, height: 0 },
-                        transform: [
-                          { scale: Animated.multiply(scaleAnim, pulseAnim) },
-                        ],
+                        transform: [{ scale: Animated.multiply(scaleAnim, pulseAnim) }],
                       },
                     ]}
                   >
@@ -194,32 +211,30 @@ function TabNavigator({ navigation }) {
                   </Animated.View>
                 </TouchableWithoutFeedback>
 
-                {/* “Helpio Pay” label – now also clickable */}
                 <TouchableWithoutFeedback
-  onPressIn={handlePressIn}
-  onPressOut={handlePressOut}
->
-  <Text
-    numberOfLines={1}
-    style={{
-      fontSize: 11,
-      fontWeight: "600",
-      color: focused
-        ? darkMode
-          ? "#00A6FF"
-          : "#007AFF"
-        : darkMode
-        ? "#CCC"
-        : "#1B1B1B",
-      marginTop: 6,
-      textAlign: "center",
-      width: "100%",
-    }}
-  >
-    Helpio Pay
-  </Text>
-</TouchableWithoutFeedback>
-
+                  onPressIn={handlePressIn}
+                  onPressOut={handlePressOut}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: "600",
+                      color: focused
+                        ? darkMode
+                          ? "#00A6FF"
+                          : "#007AFF"
+                        : darkMode
+                        ? "#CCC"
+                        : "#1B1B1B",
+                      marginTop: 6,
+                      textAlign: "center",
+                      width: "100%",
+                    }}
+                  >
+                    Helpio Pay
+                  </Text>
+                </TouchableWithoutFeedback>
               </View>
             );
           }
@@ -227,9 +242,7 @@ function TabNavigator({ navigation }) {
           let iconName;
           if (route.name === "Home") iconName = focused ? "home" : "home-outline";
           else if (route.name === "Messages")
-            iconName = focused
-              ? "chatbubble-ellipses"
-              : "chatbubble-ellipses-outline";
+            iconName = focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline";
           else if (route.name === "Invoices")
             iconName = focused ? "document-text" : "document-text-outline";
           else if (route.name === "Menu")
@@ -256,14 +269,11 @@ function TabNavigator({ navigation }) {
     >
       <Tab.Screen name="Home" component={AllServicesScreen} />
       <Tab.Screen name="Messages" component={MessagesScreen} />
-
-      {/* 🔥 FIX: Prevent duplicate HelpioPay mounts */}
       <Tab.Screen
         name="HelpioPay"
         component={EmptyPlaceholder}
         options={{ tabBarLabel: "" }}
       />
-
       <Tab.Screen name="Invoices" component={InvoicesHomeScreen} />
       <Tab.Screen name="Menu" component={MenuScreen} />
     </Tab.Navigator>
@@ -272,10 +282,9 @@ function TabNavigator({ navigation }) {
 
 function RootNavigator() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        screenOptions={{ headerShown: false, gestureEnabled: true }}
-      >
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      
+        {/* Main app */}
         <Stack.Screen name="MainTabs" component={TabNavigator} />
 
         {/* Feed */}
@@ -283,54 +292,30 @@ function RootNavigator() {
         <Stack.Screen name="HelpioVerified" component={HelpioVerifiedScreen} />
         <Stack.Screen name="TrendingNow" component={TrendingNowScreen} />
 
+        {/* Pay modal */}
         <Stack.Screen
           name="HelpioPay"
           component={HelpioPayScreen}
           options={{
-            headerShown: false,
             presentation: "transparentModal",
             animation: "slide_from_bottom",
-            gestureEnabled: false, // PanResponder handles it
           }}
         />
 
-        {/* Rest of your routes unchanged */}
+        {/* Onboarding */}
         <Stack.Screen
-          name="ChatDetail"
-          component={ChatDetailScreen}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-            headerShown: true,
-            headerTransparent: true,
-            headerBlurEffect: "systemUltraThinMaterialLight",
-            headerTitle: "",
-            headerBackTitleVisible: false,
-            headerTintColor: "transparent",
-            headerLeft: () => null,
-          }}
+          name="ProviderOnboardingScreen"
+          component={ProviderOnboardingScreen}
         />
 
+        {/* Everything else unchanged */}
+        <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
         <Stack.Screen name="ServiceDetailScreen" component={ServiceDetailScreen} />
         <Stack.Screen name="ImagePreview" component={ImagePreviewScreen} />
-        <Stack.Screen
-          name="CreateListing"
-          component={CreateListingScreen}
-          options={{ headerShown: false }}
-        />
+        <Stack.Screen name="CreateListing" component={CreateListingScreen} />
         <Stack.Screen name="PreviewListing" component={PreviewListingScreen} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
-
-        <Stack.Screen
-          name="ProfessionalDashboardA"
-          component={ProfessionalDashboardA}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-          }}
-        />
-
-        {/* Existing Routes */}
+        <Stack.Screen name="ProfessionalDashboardA" component={ProfessionalDashboardA} />
         <Stack.Screen name="ProfileScreen" component={ProfileScreen} />
         <Stack.Screen name="MyListingsScreen" component={MyListingsScreen} />
         <Stack.Screen name="OrdersScreen" component={OrdersScreen} />
@@ -342,137 +327,38 @@ function RootNavigator() {
 
         {/* Invoicing */}
         <Stack.Screen name="ClientsScreen" component={ClientsScreen} />
-        <Stack.Screen
-          name="SubscriptionPlanDetail"
-          component={SubscriptionPlanDetailScreen}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-            headerShown: false,
-          }}
-        />
+        <Stack.Screen name="SubscriptionPlanDetail" component={SubscriptionPlanDetailScreen} />
         <Stack.Screen name="AnalyticsDashboard" component={AnalyticsDashboardScreen} />
         <Stack.Screen name="MessagesScreen" component={MessagesScreen} />
         <Stack.Screen name="PayoutsBalancesScreen" component={PayoutsBalancesScreen} />
-       
-       <Stack.Screen
-  name="AddClient"
-  component={AddClientScreen}
-  options={{
-    presentation: "modal",
-    animation: "slide_from_right",
-    headerShown: false,
-  }}
-/>
+        <Stack.Screen name="AddClient" component={AddClientScreen} />
+        <Stack.Screen name="CreateSubscriptionPlan" component={CreateSubscriptionPlanScreen} />
+        <Stack.Screen name="AlertsRemindersScreen" component={AlertsRemindersScreen} />
+        <Stack.Screen name="InvoiceBuilderScreen" component={InvoiceBuilderScreen} />
+        <Stack.Screen name="ClientProfile" component={ClientProfileScreen} />
+        <Stack.Screen name="InvoicePreviewScreen" component={InvoicePreviewScreen} />
+        <Stack.Screen name="SubscriptionPlans" component={SubscriptionPlansScreen} />
+        <Stack.Screen name="ClientDetail" component={ClientDetailScreen} />
+        <Stack.Screen name="WebhookEventsScreen" component={WebhookEventsScreen} />
 
-        <Stack.Screen
-          name="CreateSubscriptionPlan"
-          component={CreateSubscriptionPlanScreen}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="AlertsRemindersScreen"
-          component={AlertsRemindersScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="InvoiceBuilderScreen"
-          component={InvoiceBuilderScreen}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-            headerShown: false,
-          }}
-        />
-
-        <Stack.Screen
-          name="ClientProfile"
-          component={ClientProfileScreen}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-            headerShown: false,
-          }}
-        />
-
-        <Stack.Screen
-          name="InvoicePreviewScreen"
-          component={InvoicePreviewScreen}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-            headerShown: false,
-          }}
-        />
-
-        <Stack.Screen
-          name="SubscriptionPlans"
-          component={SubscriptionPlansScreen}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-            headerShown: false,
-          }}
-        />
-
-        <Stack.Screen
-          name="ClientDetail"
-          component={ClientDetailScreen}
-          options={{
-            presentation: "modal",
-            animation: "slide_from_right",
-          }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+      
+ </Stack.Navigator>
   );
 }
-
 export default function App() {
-  const [ready, setReady] = React.useState(false);
-
-  useEffect(() => {
-    const init = async () => {
-      console.log("🧨 Clearing storage...");
-      await AsyncStorage.clear();
-
-      console.log("🔗 Fetching DEV token...");
-      try {
-        const res = await fetch("https://helpio-backend.onrender.com/api/auth/dev-login");
-        const data = await res.json();
-
-        if (data.success && data.token) {
-          await AsyncStorage.setItem("token", data.token);
-          console.log("✅ DEV TOKEN SET:", data.token);
-        } else {
-          console.log("❌ DEV LOGIN FAILED:", data);
-        }
-      } catch (err) {
-        console.log("🔥 DEV LOGIN ERROR:", err);
-      }
-
-      setReady(true); // ✅ tell the app that token exists
-    };
-
-    init();
-  }, []);
-
-  if (!ready) {
-    return null; // or splash screen
-  }
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <RootNavigator />
+        <NavigationContainer>
+          {/* 🔥 ZUSTAND AUTH GATE */}
+          <AuthGate />
+        </NavigationContainer>
       </ThemeProvider>
     </GestureHandlerRootView>
   );
 }
+
+
 
 const styles = StyleSheet.create({
   centerButton: {

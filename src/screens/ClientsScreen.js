@@ -35,7 +35,7 @@ export default function ClientsScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
 
   const getToken = async () => {
-    return await AsyncStorage.getItem("token");
+   return await AsyncStorage.getItem("authToken");
   };
 
   const loadCustomers = useCallback(async () => {
@@ -51,8 +51,11 @@ export default function ClientsScreen({ navigation }) {
 
       const data = await res.json();
 
+console.log("🔥 CLIENTS RESPONSE:", data);
+
+
       if (data.success) {
-        setCustomers(data.customers || []);
+        setCustomers(data.customers || data.customer || data.customerData || []);
       }
     } catch (err) {
       console.log("Error loading customers:", err);
@@ -232,17 +235,54 @@ export default function ClientsScreen({ navigation }) {
         </TouchableOpacity>
       </BlurView>
 
+
+
       <View style={styles.content}>
-        <View
-          style={[
-            styles.searchBar,
-            {
-              backgroundColor: darkMode
-                ? "rgba(255,255,255,0.06)"
-                : "rgba(0,0,0,0.04)",
-            },
-          ]}
-        >
+        {/* 📊 DASHBOARD BUTTON ABOVE SEARCH */}
+<TouchableOpacity
+  onPress={() => navigation.navigate("CRMDashboard")}
+  style={{
+    alignSelf: "flex-start",
+    marginLeft: 4,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: darkMode
+      ? "rgba(255,255,255,0.07)"
+      : "rgba(0,0,0,0.05)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  }}
+>
+  <Ionicons
+    name="stats-chart-outline"
+    size={18}
+    color={darkMode ? "#FFF" : "#111"}
+    style={{ marginRight: 6 }}
+  />
+  <Text
+    style={{
+      fontSize: 14,
+      fontWeight: "700",
+      color: darkMode ? "#FFF" : "#111",
+    }}
+  >
+    Dashboard
+  </Text>
+</TouchableOpacity>
+
+<View
+  style={[
+    styles.searchBar,
+    {
+      backgroundColor: darkMode
+        ? "rgba(255,255,255,0.06)"
+        : "rgba(0,0,0,0.04)",
+    },
+  ]}
+>
+
           <Ionicons
             name="search"
             size={18}
@@ -363,10 +403,11 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    flex: 1,
-    paddingTop: 96,
-    paddingHorizontal: 14,
-  },
+  flex: 1,
+  paddingTop: 128, // << FIX
+  paddingHorizontal: 14,
+},
+
 
   searchBar: {
     flexDirection: "row",

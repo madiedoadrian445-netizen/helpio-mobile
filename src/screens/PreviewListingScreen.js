@@ -1,5 +1,5 @@
 // src/screens/PreviewListingScreen.js
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -8,23 +8,72 @@ import {
   Image,
   TouchableOpacity,
   SafeAreaView,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { api } from "../config/api";
 
 export default function PreviewListingScreen({ route, navigation }) {
   const { title, description, category, price, location, images } =
     route.params || {};
 
-  const confirmPublish = () => {
-    // Later: send to backend API
-    alert("✅ Your listing has been published!");
-    navigation.popToTop(); // return to main feed
+  const [loading, setLoading] = useState(false);
+
+  const publishListing = async () => {
+    try {
+      setLoading(true);
+
+      const token = await AsyncStorage.getItem("authToken");
+      console.log("🔑 TOKEN USED:", token);
+
+      if (!token) {
+        throw new Error("No auth token stored — user must re-login.");
+      }
+
+      const payload = {
+        title,
+        description,
+        category,
+        price: Number(price),
+        images,
+        location: {
+          city: location?.city || "Miami",
+          state: location?.state || "FL",
+          country: location?.country || "USA",
+        },
+      };
+
+      console.log("📤 FINAL LISTING PAYLOAD:", payload);
+
+      const response = await api.post("/api/listings", payload, token);
+
+      console.log("📥 RAW RESPONSE:", response);
+      console.log("✅ LISTING CREATED:", response?.data?.listing);
+
+      // ⭐ FIXED HERE — MUST check response.data.success
+      if (!response?.data?.success) {
+        throw new Error(response?.data?.message || "Failed to publish listing");
+      }
+
+      Alert.alert("Success", "Your listing has been published!");
+      navigation.popToTop();
+
+    } catch (err) {
+      console.log("❌ LISTING ERROR:", err);
+      Alert.alert(
+        "Error",
+        err?.message || "Something went wrong while creating your listing."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
-        {/* Image Carousel */}
         <ScrollView
           horizontal
           pagingEnabled
@@ -36,11 +85,17 @@ export default function PreviewListingScreen({ route, navigation }) {
           ))}
         </ScrollView>
 
-        {/* Info Section */}
         <View style={styles.content}>
           <Text style={styles.title}>{title}</Text>
+
           {price ? <Text style={styles.price}>${price}</Text> : null}
-          {location ? <Text style={styles.location}>{location}</Text> : null}
+
+          {location ? (
+            <Text style={styles.location}>
+              {location?.city}, {location?.state}, {location?.country}
+            </Text>
+          ) : null}
+
           {category ? (
             <Text style={styles.categoryTag}>{category}</Text>
           ) : null}
@@ -52,7 +107,6 @@ export default function PreviewListingScreen({ route, navigation }) {
         </View>
       </ScrollView>
 
-      {/* Bottom Buttons */}
       <View style={styles.bottomBar}>
         <TouchableOpacity
           style={[styles.button, styles.backButton]}
@@ -64,15 +118,21 @@ export default function PreviewListingScreen({ route, navigation }) {
 
         <TouchableOpacity
           style={[styles.button, styles.publishButton]}
-          onPress={confirmPublish}
+          onPress={publishListing}
+          disabled={loading}
         >
-          <Text style={styles.publishText}>Confirm & Publish</Text>
+          {loading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.publishText}>Confirm & Publish</Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
+/* ---------------- Styles ---------------- */
 const styles = StyleSheet.create({
   container: {
     flex: 1,

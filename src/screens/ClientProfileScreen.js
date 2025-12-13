@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../ThemeContext";
 import { API_BASE_URL } from "../config/api";
+import { api } from "../config/api";
 
 const HELP_BLUE = "#00A6FF";
 
@@ -81,43 +82,34 @@ export default function ClientProfileScreen({ route, navigation }) {
 
   /* ---------------- TIMELINE STATE + FETCH ---------------- */
 
-  const [timeline, setTimeline] = useState([]);
-  const [timelineLoading, setTimelineLoading] = useState(false);
+const [timeline, setTimeline] = useState([]);
+const [timelineLoading, setTimelineLoading] = useState(false);
 
-  const getToken = async () => {
-    return await AsyncStorage.getItem("token");
-  };
+const loadTimeline = useCallback(async () => {
+  if (!client?._id) return;
 
-  const loadTimeline = useCallback(async () => {
-    if (!client?._id) return;
-    try {
-      setTimelineLoading(true);
-      const token = await getToken();
+  try {
+    setTimelineLoading(true);
 
-      const res = await fetch(
-        `${API_BASE_URL}/api/customers/${client._id}/timeline`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+    const token = await AsyncStorage.getItem("token");
 
-      const data = await res.json();
+    // ⭐ Single clean request using unified API layer
+   const data = await api.get(`/api/clients/${client._id}/timeline`, token);
 
-      if (data.success) {
-        setTimeline(data.timeline || []);
-      }
-    } catch (err) {
-      console.log("Error loading timeline:", err);
-    } finally {
-      setTimelineLoading(false);
+    if (data.success) {
+      setTimeline(data.timeline || []);
     }
-  }, [client?._id]);
+  } catch (err) {
+    console.log("Error loading timeline:", err);
+  } finally {
+    setTimelineLoading(false);
+  }
+}, [client?._id]);
 
-  useEffect(() => {
-    loadTimeline();
-  }, [loadTimeline]);
+useEffect(() => {
+  loadTimeline();
+}, [loadTimeline]);
+
 
   const iconForType = (type) => {
     switch (type) {

@@ -20,11 +20,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import HeroHeader from "../components/HeroHeader";
 import { useTheme } from "../ThemeContext";
-import axios from "axios";
+import { api } from "../config/api";
 
-const API_URL = "https://helpio-backend.onrender.com/api/services";
 const HELP_IO_BLUE = "#00A6FF";
 
+// Featured placeholders
 const featuredPosts = [
   {
     _id: "featured1",
@@ -62,12 +62,24 @@ export default function AllServicesScreen({ navigation }) {
   const [maxPrice, setMaxPrice] = useState("");
   const [sortOrder, setSortOrder] = useState(null);
 
+  /* ============================================================
+      FETCH LISTINGS FROM BACKEND
+  ============================================================ */
   const fetchServices = async () => {
     try {
-      const response = await axios.get(API_URL, { timeout: 20000 });
-      setServices(response.data);
+      const response = await api.get("/api/listings");
+
+      console.log("🔥 RAW SERVICE RESPONSE:", JSON.stringify(response, null, 2));
+
+      const incoming =
+        response?.data?.listings ??
+        response?.data ??
+        [];
+
+      setServices(Array.isArray(incoming) ? incoming : []);
     } catch (err) {
-      console.log("❌ Fetch services error:", err.message);
+      console.log("❌ Fetch services error:", err);
+      setServices([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -83,62 +95,68 @@ export default function AllServicesScreen({ navigation }) {
     fetchServices();
   };
 
-  // 🟦 Normalize backend data
+  /* ============================================================
+      NORMALIZE BACKEND LISTINGS — WITH FIX
+  ============================================================ */
   const normalizedServices = React.useMemo(() => {
     return services.map((s) => ({
-      ...s,
+      _id: s._id,
       title: s.title || "",
       description: s.description || "",
       category: s.category || "",
-      location: s.location || "",
+      price: Number(s.price) || 0,
+      location: s.location || "Miami",
+
+      // 🔥 backend `images` → frontend `photos`
+      photos: Array.isArray(s.photos)
+        ? s.photos
+        : Array.isArray(s.images)
+        ? s.images
+        : [],
+
+      provider: s.provider || null,
     }));
   }, [services]);
-// 🧠 Smart iOS-style location abbreviation
-const formatLocation = (name = "") => {
-  if (!name) return "";
 
-  // Trim spaces
-  name = name.trim();
+  /* ============================================================
+      LOCATION FORMATTER (unchanged)
+  ============================================================ */
+  const formatLocation = (name = "") => {
+    if (!name) return "";
+    name = name.trim();
+    if (name.length <= 18) return name;
 
-  // If short enough, show normally
-  if (name.length <= 18) return name;
+    const map = {
+      north: "N.",
+      south: "S.",
+      east: "E.",
+      west: "W.",
+      northeast: "NE",
+      northwest: "NW",
+      southeast: "SE",
+      southwest: "SW",
+    };
 
-  // Common directional words → abbreviations
-  const map = {
-    north: "N.",
-    south: "S.",
-    east: "E.",
-    west: "W.",
-    northeast: "NE",
-    northwest: "NW",
-    southeast: "SE",
-    southwest: "SW",
-    "northwest territory": "NW Terr.",
+    let words = name.toLowerCase().split(" ");
+    words = words.map((w) => map[w] || w);
+
+    let rebuilt = words
+      .map((w) => (w.length > 10 ? w.slice(0, 8) + "." : w))
+      .join(" ");
+
+    if (rebuilt.length > 22) rebuilt = rebuilt.slice(0, 22) + "…";
+
+    return rebuilt
+      .split(" ")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
   };
 
-  let words = name.toLowerCase().split(" ");
-
-  // Replace directional words with abbreviations
-  words = words.map((w) => map[w] || w);
-
-  let rebuilt = words
-    .map((w) => (w.length > 10 ? w.slice(0, 8) + "." : w)) // shrink long words
-    .join(" ");
-
-  // Final safety truncation
-  if (rebuilt.length > 22) {
-    rebuilt = rebuilt.slice(0, 22) + "…";
-  }
-
-  return rebuilt
-    .split(" ")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-};
-
-  // 🔥 FINAL FIXED FILTER FUNCTION
+  /* ============================================================
+      FILTERS
+  ============================================================ */
   const applyFilters = () => {
-    let filtered = [...normalizedServices]; //  ✅ FIXED HERE
+    let filtered = [...normalizedServices];
 
     if (localActive) {
       filtered = filtered.filter((s) =>
@@ -149,7 +167,8 @@ const formatLocation = (name = "") => {
     if (minPrice && maxPrice) {
       filtered = filtered.filter(
         (s) =>
-          s.price >= parseFloat(minPrice) && s.price <= parseFloat(maxPrice)
+          s.price >= parseFloat(minPrice) &&
+          s.price <= parseFloat(maxPrice)
       );
     }
 
@@ -159,9 +178,7 @@ const formatLocation = (name = "") => {
     return filtered.filter((item) => {
       const q = search.toLowerCase().trim();
       if (!q) return true;
-
-      const haystack = JSON.stringify(item).toLowerCase();
-      return haystack.includes(q);
+      return JSON.stringify(item).toLowerCase().includes(q);
     });
   };
 
@@ -174,11 +191,20 @@ const formatLocation = (name = "") => {
   const hasQuery = search.trim().length > 0;
   const listToShow = hasQuery ? filtered : combinedServices;
 
+  /* ============================================================
+      RENDER
+  ============================================================ */
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+      {/* TOP BAR */}
       <BlurView intensity={40} tint={theme.blurTint} style={styles.topBlur}>
         <View style={styles.headerContainer}>
-          <Text style={[styles.headerTitleBlue, { color: HELP_IO_BLUE, fontSize: 20.5 }]}>
+          <Text
+            style={[
+              styles.headerTitleBlue,
+              { color: HELP_IO_BLUE, fontSize: 20.5 },
+            ]}
+          >
             BusinessPlace
           </Text>
 
@@ -187,11 +213,7 @@ const formatLocation = (name = "") => {
             onPress={() => navigation.navigate("Notifications")}
             style={styles.iconWrap}
           >
-            <BlurView
-              intensity={40}
-              tint={theme.blurTint}
-              style={styles.blurCircle}
-            >
+            <BlurView intensity={40} tint={theme.blurTint} style={styles.blurCircle}>
               <Ionicons
                 name="notifications-outline"
                 size={20}
@@ -203,6 +225,7 @@ const formatLocation = (name = "") => {
         </View>
       </BlurView>
 
+      {/* MAIN SCROLL */}
       <ScrollView
         style={[styles.container, { backgroundColor: theme.background }]}
         showsVerticalScrollIndicator={false}
@@ -215,6 +238,7 @@ const formatLocation = (name = "") => {
         }
         contentContainerStyle={{ paddingTop: Platform.OS === "ios" ? 10 : 8 }}
       >
+        {/* HERO HEADER */}
         <View style={{ marginTop: -8 }}>
           <HeroHeader
             navigation={navigation}
@@ -233,11 +257,13 @@ const formatLocation = (name = "") => {
           />
         </View>
 
+        {/* SECTION TITLE */}
         <View style={{ marginTop: 8 }}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
             Trending Now
           </Text>
 
+          {/* LOADING */}
           {loading ? (
             <ActivityIndicator
               size="large"
@@ -264,6 +290,7 @@ const formatLocation = (name = "") => {
                     navigation.navigate("ServiceDetailScreen", { service })
                   }
                 >
+                  {/* IMAGE */}
                   {service.photos?.length > 0 ? (
                     typeof service.photos[0] === "number" ? (
                       <Image
@@ -282,78 +309,79 @@ const formatLocation = (name = "") => {
                       <Ionicons name="image-outline" size={30} color="#ccc" />
                     </View>
                   )}
-<View style={styles.cardContent}>
-  <View style={styles.titleRow}>
-    <Text
-      numberOfLines={1}
-      style={[styles.title, { color: theme.text }]}
-    >
-      {service.title}
-    </Text>
-    {localActive && (
-      <Ionicons
-        name="checkmark-circle"
-        size={16}
-        color={HELP_IO_BLUE}
-      />
-    )}
-  </View>
 
-  <Text
-    numberOfLines={1}
-    style={[styles.desc, { color: theme.subtleText }]}
-  >
-    {service.description}
-  </Text>
+                  {/* CONTENT */}
+                  <View style={styles.cardContent}>
+                    <View style={styles.titleRow}>
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.title, { color: theme.text }]}
+                      >
+                        {service.title}
+                      </Text>
 
-  {/* PRICE + LOCATION */}
-  <View
-    style={{
-      flexDirection: "row",
-      alignItems: "center",
-      marginTop: 4,
-      position: "relative",
-    }}
-  >
-    {/* PRICE */}
-    <Text
-      style={[
-        styles.price,
-        { color: HELP_IO_BLUE, marginRight: 8 },
-      ]}
-    >
-      {`$${service.price}`}
-    </Text>
+                      {localActive && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={16}
+                          color={HELP_IO_BLUE}
+                        />
+                      )}
+                    </View>
 
-    {/* LOCATION PIN – ABSOLUTE POSITION */}
-    <Ionicons
-      name="location"
-      size={12}
-      color={HELP_IO_BLUE}
-      style={{
-        position: "absolute",
-        right: 45,   // ← adjust freely
-        top: 2,
-      }}
-    />
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.desc, { color: theme.subtleText }]}
+                    >
+                      {service.description}
+                    </Text>
 
-    {/* LOCATION TEXT */}
-    <Text
-      numberOfLines={1}
-      style={{
-        fontSize: 14,
-        fontWeight: "600",
-        color: HELP_IO_BLUE,
-        marginLeft: 105,
-      }}
-    >
-      {service.location?.length > 15
-        ? service.location.substring(0, 12) + "..."
-        : service.location || "Miami"}
-    </Text>
-  </View>
-</View>
-                 
+                    {/* PRICE + LOCATION */}
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginTop: 4,
+                        position: "relative",
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.price,
+                          { color: HELP_IO_BLUE, marginRight: 8 },
+                        ]}
+                      >
+                        {`$${service.price}`}
+                      </Text>
+
+                      {/* LOCATION PIN */}
+                      <Ionicons
+                        name="location"
+                        size={12}
+                        color={HELP_IO_BLUE}
+                        style={{
+                          position: "absolute",
+                          right: 45,
+                          top: 2,
+                        }}
+                      />
+
+                      {/* ⭐ FIXED LOCATION TEXT — 100% SAFE, EXACT SAME LAYOUT */}
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "600",
+                          color: HELP_IO_BLUE,
+                          marginLeft: 105,
+                        }}
+                      >
+                        {typeof service.location === "string"
+                          ? service.location
+                          : `${service.location?.city || "Miami"}, ${service.location?.state || "FL"}`}
+                      </Text>
+                    </View>
+                  </View>
                 </TouchableOpacity>
               ))}
             </View>
@@ -361,6 +389,7 @@ const formatLocation = (name = "") => {
         </View>
       </ScrollView>
 
+      {/* ADD LISTING BUTTON */}
       <TouchableOpacity
         style={[styles.addButton, { backgroundColor: HELP_IO_BLUE }]}
         onPress={() => navigation.navigate("CreateListing")}
@@ -450,12 +479,11 @@ const formatLocation = (name = "") => {
           <View style={styles.modalOverlay} />
         </TouchableWithoutFeedback>
 
-        <View
-          style={[styles.modalContainer, { backgroundColor: theme.card }]}
-        >
+        <View style={[styles.modalContainer, { backgroundColor: theme.card }]}>
           <Text style={[styles.modalTitle, { color: theme.text }]}>
             Sort by Price
           </Text>
+
           <TouchableOpacity
             style={styles.sortOption}
             onPress={() => {
@@ -467,6 +495,7 @@ const formatLocation = (name = "") => {
               Lowest → Highest
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.sortOption}
             onPress={() => {

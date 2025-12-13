@@ -129,21 +129,21 @@ function buildInvoiceHtml({
         }
 
         footer .thanks {
-          font-size: 13px;       /* smaller like screenshot */
-          font-weight: 600;      /* slightly lighter */
-          margin-bottom: 4px;    /* tighter spacing */
+          font-size: 13px;
+          font-weight: 600;
+          margin-bottom: 4px;
           color: #333;
         }
 
         footer .powered {
-          font-size: 12px;       /* smaller like screenshot */
-          font-weight: 500;      /* lighter + cleaner */
+          font-size: 12px;
+          font-weight: 500;
           color: #555;
         }
 
         footer .brand {
-          color: ${HELP_BLUE};   /* KEEP EXACT HELPIO BLUE */
-          font-weight: 600;      /* slightly lighter to match screenshot */
+          color: ${HELP_BLUE};
+          font-weight: 600;
         }
       </style>
     </head>

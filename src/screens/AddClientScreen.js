@@ -17,7 +17,8 @@ import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../ThemeContext";
-import { API_BASE_URL } from "../config/api";
+import { api } from "../config/api";
+import { useAuth } from "../context/AuthContext";
 
 /* ----------------------------------------------------
    MEMOIZED FIELD COMPONENT
@@ -46,6 +47,7 @@ const Field = memo(function Field({
 
 export default function AddClientScreen({ navigation }) {
   const { darkMode, theme } = useTheme();
+  const { user } = useAuth();
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -59,14 +61,13 @@ export default function AddClientScreen({ navigation }) {
        DEBUG TOKEN ON MOUNT
   ------------------------- */
   useEffect(() => {
-    AsyncStorage.getItem("token").then((t) =>
+    AsyncStorage.getItem("authToken").then((t) =>
       console.log("🔑 CURRENT STORED TOKEN:", t)
     );
-    console.log("🔗 API BASE URL:", API_BASE_URL);
   }, []);
 
   /* -------------------------
-       SAVE TO BACKEND
+       SAVE TO BACKEND (FIXED)
   ------------------------- */
   const handleSave = async () => {
     if (!fullName.trim().length) return;
@@ -74,53 +75,35 @@ export default function AddClientScreen({ navigation }) {
     try {
       setLoading(true);
 
-      const token = await AsyncStorage.getItem("token");
+      const payload = {
+        name: fullName.trim(),
+        phone,
+        email,
+        company,
+        address,
+        notes,
+      };
 
-      console.log("➡️ TOKEN USED FOR SAVE:", token);
-      console.log("➡️ FULL REQUEST URL:", `${API_BASE_URL}/api/customers`);
-      console.log("➡️ SENDING HEADERS:", {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      });
+      console.log("📤 Sending client payload:", payload);
 
-      const res = await fetch(`${API_BASE_URL}/api/customers`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: fullName.trim(),
-          phone,
-          email,
-          company,
-          address,
-          notes,
-        }),
-      });
+      // 🔥 FIXED — using correct endpoint + axios wrapper with auto-token
+      const res = await api.post("/api/customers", payload);
 
-      /* -------------------------
-          RAW RESPONSE LOGGING
-      ------------------------- */
-      console.log("➡️ RAW RESPONSE STATUS:", res.status);
-      console.log("➡️ RAW RESPONSE HEADERS:", res.headers);
+      console.log("📥 Add Client Response:", res.data);
 
-      const text = await res.text();
-      console.log("➡️ RAW RESPONSE BODY:", text);
+      if (!res.data.success) {
+        Alert.alert("Error", res.data.message || "Failed to save client.");
+        return;
+      }
 
-      // ⛔ STOP HERE so we analyze raw response before parsing JSON
-      return;
-
-      // (Will re-enable this once debugging is done)
-      // const data = await res.json();
-      // if (!data.success) {
-      //   Alert.alert("Error", data.message || "Could not save client.");
-      //   return;
-      // }
-      // navigation.navigate("ClientsScreen", { refreshNow: true });
+      // 🔄 Refresh CRM list when returning
+      navigation.goBack();
+      setTimeout(() => {
+        navigation.navigate("ClientsScreen", { refresh: true });
+      }, 60);
 
     } catch (err) {
-      console.log("❌ ERROR SENDING REQUEST:", err);
+      console.log("❌ Add Client Error:", err.response?.data || err);
       Alert.alert("Error", "Something went wrong saving this client.");
     } finally {
       setLoading(false);
@@ -128,17 +111,18 @@ export default function AddClientScreen({ navigation }) {
   };
 
   /* -------------------------
-       UI (unchanged)
+         UI (UNCHANGED)
   ------------------------- */
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+      
       {/* HEADER */}
       <BlurView intensity={50} tint={theme.blurTint} style={styles.header}>
         <TouchableOpacity style={styles.headerSide} onPress={() => navigation.goBack()}>
           <Text style={[styles.headerText, { color: "#007AFF" }]}>Cancel</Text>
         </TouchableOpacity>
 
-        <View style={styles.headerCenter}>
+        <View class={styles.headerCenter}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>New Client</Text>
         </View>
 
@@ -188,7 +172,7 @@ export default function AddClientScreen({ navigation }) {
             </View>
           </View>
 
-          {/* MAIN FORM CARD */}
+          {/* MAIN CARD */}
           <View
             style={[
               styles.card,
