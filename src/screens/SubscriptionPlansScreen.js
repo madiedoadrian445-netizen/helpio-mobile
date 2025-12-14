@@ -130,14 +130,18 @@ export default function SubscriptionPlansScreen({ navigation }) {
 
           {/* Plans List */}
           {plans.map((p) => (
-            <TouchableOpacity
-              key={p._id}
-              style={styles.planCard}
-              onPress={() =>
-                navigation.navigate("CreateSubscriptionPlan", { plan: p })
-              }
-              activeOpacity={0.9}
-            >
+           <TouchableOpacity
+  key={p._id}
+  style={styles.planCard}
+  onPress={() =>
+    navigation.navigate("SubscriptionPlanDetail", {
+      planId: p._id,
+      plan: p, // optional but recommended
+    })
+  }
+  activeOpacity={0.9}
+>
+
               <BlurView intensity={55} tint="light" style={styles.planBlur}>
                 <View style={styles.planHeader}>
                   <View style={{ flex: 1 }}>

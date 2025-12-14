@@ -78,6 +78,34 @@ export default function ClientProfileScreen({ route, navigation }) {
     });
   };
 
+const customerId = (() => {
+  if (typeof client?._id === "string") return client._id;
+  if (typeof client?.customerId === "string") return client.customerId;
+  if (typeof client?.id === "string") return client.id;
+
+  if (client?._id && typeof client._id === "object" && client._id.toString)
+    return client._id.toString();
+
+  if (
+    client?.customerId &&
+    typeof client.customerId === "object" &&
+    client.customerId.toString
+  )
+    return client.customerId.toString();
+
+  if (client?.customer?._id)
+    return client.customer._id.toString();
+
+  return null;
+})();
+
+console.log(
+  "🧾 customerId used for timeline:",
+  customerId,
+  typeof customerId
+);
+
+
   const callDisabled = !cleaned || cleaned.length !== 10;
 
   /* ---------------- TIMELINE STATE + FETCH ---------------- */
@@ -86,25 +114,31 @@ const [timeline, setTimeline] = useState([]);
 const [timelineLoading, setTimelineLoading] = useState(false);
 
 const loadTimeline = useCallback(async () => {
-  if (!client?._id) return;
+  if (!customerId) return;
 
   try {
     setTimelineLoading(true);
 
-    const token = await AsyncStorage.getItem("token");
+    const res = await api.get(`/api/customers/${customerId}/timeline`);
 
-    // ⭐ Single clean request using unified API layer
-   const data = await api.get(`/api/clients/${client._id}/timeline`, token);
-
-    if (data.success) {
-      setTimeline(data.timeline || []);
+    if (Array.isArray(res.data)) {
+      setTimeline(res.data);
+    } else if (Array.isArray(res.data?.timeline)) {
+      setTimeline(res.data.timeline);
+    } else {
+      setTimeline([]);
     }
   } catch (err) {
-    console.log("Error loading timeline:", err);
+    console.log(
+      "❌ Error loading timeline:",
+      err.response?.data || err.message
+    );
+    setTimeline([]);
   } finally {
     setTimelineLoading(false);
   }
-}, [client?._id]);
+}, [customerId]);
+
 
 useEffect(() => {
   loadTimeline();
