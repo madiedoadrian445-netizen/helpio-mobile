@@ -385,9 +385,8 @@ const invoiceId = created?.invoice?._id;
 console.log("Saved Invoice ID:", invoiceId);
 
 // ✅ Notify invoices screens to refresh
-navigation.navigate("InvoicesHome", {
+navigation.navigate("Invoices", {
   refreshInvoices: Date.now(),
-  returnToTab: "dashboard",
 });
 
 Alert.alert("Success", "Invoice saved and added to invoices!");
