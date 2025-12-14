@@ -175,7 +175,11 @@ export default function AlertsRemindersScreen({ navigation }) {
     }
     if (alert.category === "invoice") {
       // Example: open your invoices dashboard
-      navigation.navigate("InvoicesHomeScreen"); // change if your route name is different
+    navigation.navigate("MainTabs", {
+  screen: "Invoices",
+});
+
+ // change if your route name is different
       return;
     }
     if (alert.category === "payment" || alert.category === "payout") {

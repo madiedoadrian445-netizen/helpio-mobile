@@ -314,83 +314,6 @@ if (!customerId) throw new Error("No client selected");
     // Generate local PDF as usual
     await generateInvoicePDF(payload);
 
-    // ⭐ FULL TOKEN FALLBACK (consistent with loadClients)
-    const token =
-      (await AsyncStorage.getItem("token")) ||
-      (await AsyncStorage.getItem("userToken")) ||
-      (await AsyncStorage.getItem("authToken")) ||
-      (await AsyncStorage.getItem("providerToken"));
-
-    if (!token) {
-      Alert.alert("Authentication Error", "No valid token found. Please log in again.");
-      return;
-    }
-
-    const customerId = selectedClient?._id;
-if (!customerId) {
-  Alert.alert("Missing Client", "Select a client before sharing invoice.");
-  return;
-}
-
-
-    const {
-      items,
-      numbers,
-      invoiceMeta,
-      taxPct,
-      paid,
-    } = payload;
-
-    const response = await fetch(`${API_BASE_URL}/api/invoices`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token.trim()}`,
-      },
-      body: JSON.stringify({
-        customer: customerId,
-
-        items: items.map((i) => ({
-          description: i.desc || i.title || "",
-          qty: Number(i.qty) || 1,
-          rate: Number(i.rate) || 0,
-          amount: (Number(i.rate) || 0) * (Number(i.qty) || 0),
-        })),
-
-        subtotal: numbers.subtotal,
-        tax: numbers.tax,
-        taxPct: Number(taxPct) || 0,
-        total: numbers.total,
-        paid: Number(paid) || 0,
-        balance: numbers.balance,
-
-        invoiceNumber: invoiceMeta.number,
-        issueDate: invoiceMeta.date,
-        dueDate: invoiceMeta.due,
-        status: status || "DUE",
-        notes: "",
-      }),
-    });
-
-    if (!response.ok) {
-      const errTxt = await response.text();
-      console.log("🔥 Invoice create error:", errTxt);
-      throw new Error("Invoice could not be saved to CRM");
-    }
-
-    const created = await response.json();
-const invoiceId = created?.invoice?._id;
-
-
-console.log("Saved Invoice ID:", invoiceId);
-
-// ✅ Notify invoices screens to refresh
-navigation.navigate("Invoices", {
-  refreshInvoices: Date.now(),
-});
-
-Alert.alert("Success", "Invoice saved and added to invoices!");
-
   } catch (err) {
     console.error("share invoice error:", err);
     Alert.alert("Error", err.message || "Failed to share invoice");
@@ -828,10 +751,14 @@ Alert.alert("Success", "Invoice saved and added to invoices!");
   try {
     await saveInvoiceToCRM();
 
-    navigation.navigate("InvoicesHome", {
-      refreshInvoices: Date.now(),
-      returnToTab: "dashboard",
-    });
+   navigation.navigate("MainTabs", {
+  screen: "Invoices",
+  params: {
+    refreshInvoices: Date.now(),
+  },
+});
+
+
 
     Alert.alert("Saved", "Invoice saved to invoices.");
   } catch (err) {
