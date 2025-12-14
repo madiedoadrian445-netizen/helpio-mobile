@@ -1,5 +1,5 @@
 // src/screens/InvoicesHomeScreen.js
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   SafeAreaView,
   View,
@@ -9,50 +9,74 @@ import {
   ScrollView,
   Platform,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../ThemeContext";
-import { useRoute } from "@react-navigation/native";
+import { useRoute, useFocusEffect } from "@react-navigation/native";
+import { api } from "../config/api";
 import SubscriptionsIcon from "../../assets/images/subscriptions.png";
+import InvoicesListScreen from "./InvoicesListScreen";
 
 
-const MOCK_CLIENTS = [
-  { id: "1", name: "AFM Showroom", total: 3250, invoices: 3 },
-  { id: "2", name: "Miami Jetski Shop", total: 1400, invoices: 2 },
-  { id: "3", name: "Veloz Contractors", total: 8900, invoices: 5 },
-];
 
-const MOCK_INVOICES = [
-  { id: "INV-1024", client: "AFM Showroom", total: 1250, status: "Paid" },
-  { id: "INV-1025", client: "Miami Jetski Shop", total: 650, status: "Unpaid" },
-  { id: "INV-1026", client: "Veloz Contractors", total: 4200, status: "Overdue" },
-];
 
 export default function InvoicesHomeScreen({ navigation }) {
   const { darkMode, theme } = useTheme();
   const route = useRoute();
 
+  const refreshKey = route.params?.refreshInvoices;
   const initialTab = route.params?.returnToTab || "dashboard";
   const [tab, setTab] = useState(initialTab);
 
+  const [recentInvoices, setRecentInvoices] = useState([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
   const isLight = !darkMode;
 
-  /* 
-    🔥 IMPORTANT FIX:
-    - Removed the broken useEffect that auto-navigated away instantly
-    - Navigation now ONLY happens when the user taps the Clients button
-  */
+  /* --------------------------------------------------
+     FETCH RECENT INVOICES (LIVE DATA — REFRESH SAFE)
+  -------------------------------------------------- */
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+
+      const fetchRecentInvoices = async () => {
+        try {
+          setLoadingRecent(true);
+          const res = await api.get("/api/invoices/provider/me");
+
+          if (mounted && res.data?.success) {
+            const sorted = [...(res.data.invoices || [])].sort(
+              (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+            );
+            setRecentInvoices(sorted.slice(0, 5));
+          }
+        } catch (err) {
+          console.log(
+            "❌ Fetch recent invoices error:",
+            err.response?.data || err
+          );
+        } finally {
+          mounted && setLoadingRecent(false);
+        }
+      };
+
+      fetchRecentInvoices();
+
+      return () => {
+        mounted = false;
+      };
+    }, [refreshKey])
+  );
 
   const renderSegmentButton = (key, label) => {
     const active = tab === key;
 
     const handlePress = () => {
       if (key === "clients") {
-        // OPEN CLIENTS CRM PAGE
-        navigation.navigate("ClientsScreen", {
-          returnToTab: "clients",
-        });
+        navigation.navigate("ClientsScreen", { returnToTab: "clients" });
         return;
       }
 
@@ -177,9 +201,7 @@ export default function InvoicesHomeScreen({ navigation }) {
             },
           ]}
           onPress={() =>
-            navigation.navigate("ClientsScreen", {
-              returnToTab: "clients",
-            })
+            navigation.navigate("ClientsScreen", { returnToTab: "clients" })
           }
         >
           <Ionicons name="person-add-outline" size={26} color="#34C759" />
@@ -192,112 +214,72 @@ export default function InvoicesHomeScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
- {/* Subscriptions + Dashboard Row */}
-<View style={[styles.quickRow, { marginTop: 16 }]}>
+      {/* Subscriptions + Dashboard Row */}
+      <View style={[styles.quickRow, { marginTop: 16 }]}>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          style={[
+            styles.quickCard,
+            {
+              backgroundColor: isLight
+                ? "rgba(255,255,255,0.9)"
+                : "rgba(28,28,30,0.9)",
+              shadowOpacity: isLight ? 0.1 : 0,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingVertical: 18,
+            },
+          ]}
+          onPress={() => navigation.navigate("SubscriptionPlans")}
+        >
+          <Ionicons
+            name="repeat-outline"
+            size={22}
+            color="#5856D6"
+            style={{ marginBottom: 10 }}
+          />
+          <Text style={[styles.quickTitle, { color: theme.text, marginTop: 4 }]}>
+            Create Subscriptions
+          </Text>
+          <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
+            Plans & billing
+          </Text>
+          <Image
+            source={SubscriptionsIcon}
+            style={{ width: 28, height: 28, marginTop: 10 }}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
 
- {/* Subscriptions Card */}
-<TouchableOpacity
-  activeOpacity={0.9}
-  style={[
-    styles.quickCard,
-    {
-      backgroundColor: isLight
-        ? "rgba(255,255,255,0.9)"
-        : "rgba(28,28,30,0.9)",
-      shadowOpacity: isLight ? 0.1 : 0,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: 18,
-    },
-  ]}
-  onPress={() => navigation.navigate("SubscriptionPlans")}
->
-
-  {/* 🔵 Old Subscription Ionicon (TOP) */}
-  <Ionicons
-    name="repeat-outline"
-    size={22}
-    color="#5856D6"
-    style={{ marginBottom: 10 }}
-  />
-
-  {/* Center Labels */}
-  <Text style={[styles.quickTitle, { color: theme.text, marginTop: 4 }]}>
-    Create Subscriptions
-  </Text>
-
-  <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
-    Plans & billing
-  </Text>
-
-  {/* 🔵 New PNG Icon (BOTTOM) */}
-  <Image
-    source={SubscriptionsIcon}
-    style={{
-      width: 28,
-      height: 28,
-      marginTop: 10,
-      opacity: isLight ? 0.9 : 0.85,
-    }}
-    resizeMode="contain"
-  />
-
-</TouchableOpacity>
-
-  {/* Dashboard Card */}
-  <TouchableOpacity
-    activeOpacity={0.9}
-    onPress={() => navigation.navigate("AnalyticsDashboard")}
-    style={[
-      styles.quickCard,
-      {
-        backgroundColor: isLight
-          ? "rgba(255,255,255,0.9)"
-          : "rgba(28,28,30,0.9)",
-        shadowOpacity: isLight ? 0.1 : 0,
-        alignItems: "center",
-        justifyContent: "center",
-      },
-    ]}
-  >
-    <Ionicons
-      name="stats-chart-outline"
-      size={28}
-      color="#007AFF"
-      style={{ marginBottom: 6 }}
-    />
-
-    <Text style={[styles.quickTitle, { color: theme.text }]}>
-      Dashboard
-    </Text>
-    <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
-      Performance & revenue
-    </Text>
-
-    {/* ⭐ Mini Sparkline INSIDE the card */}
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "flex-end",
-        marginTop: 12,
-        gap: 3,
-      }}
-    >
-      {[8, 14, 10, 22, 18, 26, 35].map((h, i) => (
-        <View
-          key={i}
-          style={{
-            width: 6,
-            height: h,
-            borderRadius: 3,
-            backgroundColor: "rgba(0,122,255,0.55)",
-          }}
-        />
-      ))}
-    </View>
-  </TouchableOpacity>
-
-</View>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate("AnalyticsDashboard")}
+          style={[
+            styles.quickCard,
+            {
+              backgroundColor: isLight
+                ? "rgba(255,255,255,0.9)"
+                : "rgba(28,28,30,0.9)",
+              shadowOpacity: isLight ? 0.1 : 0,
+              alignItems: "center",
+              justifyContent: "center",
+            },
+          ]}
+        >
+          <Ionicons
+            name="stats-chart-outline"
+            size={28}
+            color="#007AFF"
+            style={{ marginBottom: 6 }}
+          />
+          <Text style={[styles.quickTitle, { color: theme.text }]}>
+            Dashboard
+          </Text>
+          <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
+            Performance & revenue
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Recent Invoices */}
       <View style={{ marginTop: 32 }}>
@@ -305,7 +287,9 @@ export default function InvoicesHomeScreen({ navigation }) {
           Recent invoices
         </Text>
 
-        {MOCK_INVOICES.length === 0 ? (
+        {loadingRecent ? (
+          <ActivityIndicator style={{ marginTop: 16 }} />
+        ) : !recentInvoices.length ? (
           <Text style={[styles.emptyText, { color: theme.subtleText }]}>
             No invoices yet.
           </Text>
@@ -321,21 +305,21 @@ export default function InvoicesHomeScreen({ navigation }) {
               },
             ]}
           >
-            {MOCK_INVOICES.map((inv, idx) => {
-              const isLast = idx === MOCK_INVOICES.length - 1;
+            {recentInvoices.map((inv, idx) => {
+              const isLast = idx === recentInvoices.length - 1;
               const statusColor =
-                inv.status === "Paid"
+                inv.status === "PAID"
                   ? "#34C759"
-                  : inv.status === "Overdue"
+                  : inv.status === "OVERDUE"
                   ? "#FF3B30"
                   : "#FFCC00";
 
               return (
-                <View key={inv.id}>
+                <View key={inv._id}>
                   <View style={styles.invoiceRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.invoiceId, { color: theme.text }]}>
-                        {inv.id}
+                        {inv.invoiceNumber || `INV-${inv._id.slice(-4)}`}
                       </Text>
                       <Text
                         style={[
@@ -343,7 +327,7 @@ export default function InvoicesHomeScreen({ navigation }) {
                           { color: theme.subtleText },
                         ]}
                       >
-                        {inv.client}
+                        {inv.customer?.name || "Unknown client"}
                       </Text>
                     </View>
 
@@ -354,9 +338,14 @@ export default function InvoicesHomeScreen({ navigation }) {
                           { color: theme.text },
                         ]}
                       >
-                        ${inv.total.toFixed(2)}
+                        ${Number(inv.total).toFixed(2)}
                       </Text>
-                      <Text style={[styles.invoiceStatus, { color: statusColor }]}>
+                      <Text
+                        style={[
+                          styles.invoiceStatus,
+                          { color: statusColor },
+                        ]}
+                      >
                         {inv.status}
                       </Text>
                     </View>
@@ -371,76 +360,11 @@ export default function InvoicesHomeScreen({ navigation }) {
     </ScrollView>
   );
 
-  const renderInvoicesList = () => (
-    <ScrollView
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: 28 }}
-    >
-      <View
-        style={[
-          styles.listCard,
-          {
-            backgroundColor: isLight
-              ? "rgba(255,255,255,0.9)"
-              : "rgba(28,28,30,0.9)",
-            shadowOpacity: isLight ? 0.08 : 0,
-          },
-        ]}
-      >
-        {MOCK_INVOICES.map((inv, idx) => {
-          const isLast = idx === MOCK_INVOICES.length - 1;
-          const statusColor =
-            inv.status === "Paid"
-              ? "#34C759"
-              : inv.status === "Overdue"
-              ? "#FF3B30"
-              : "#FFCC00";
-
-          return (
-            <View key={inv.id}>
-              <View style={styles.invoiceRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.invoiceId, { color: theme.text }]}>
-                    {inv.id}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.invoiceClient,
-                      { color: theme.subtleText },
-                    ]}
-                  >
-                    {inv.client}
-                  </Text>
-                </View>
-                <View style={{ alignItems: "flex-end" }}>
-                  <Text
-                    style={[
-                      styles.invoiceTotal,
-                      { color: theme.text },
-                    ]}
-                  >
-                    ${inv.total.toFixed(2)}
-                  </Text>
-                  <Text style={[styles.invoiceStatus, { color: statusColor }]}>
-                    {inv.status}
-                  </Text>
-                </View>
-              </View>
-              {!isLast && <View style={styles.divider} />}
-            </View>
-          );
-        })}
-      </View>
-    </ScrollView>
-  );
-
-  // Correct: Only render views for Dashboard + Invoices tabs
   let content = null;
-  if (tab === "dashboard") {
-    content = renderDashboard();
-  } else if (tab === "invoices") {
-    content = renderInvoicesList();
-  }
+  if (tab === "dashboard") content = renderDashboard();
+ else if (tab === "invoices")
+  content = <InvoicesListScreen refreshKey={refreshKey} />;
+
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
@@ -479,11 +403,9 @@ export default function InvoicesHomeScreen({ navigation }) {
   );
 }
 
-/* ---------- STYLES (unchanged) ---------- */
+/* ---------- STYLES (UNCHANGED) ---------- */
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-  },
+  safe: { flex: 1 },
   headerWrap: {
     paddingTop: Platform.OS === "ios" ? 8 : 20,
     paddingHorizontal: 22,
@@ -494,15 +416,8 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     marginBottom: 10,
   },
-  segmentWrap: {
-    paddingHorizontal: 22,
-    marginBottom: 8,
-  },
-  segmentBackground: {
-    flexDirection: "row",
-    borderRadius: 12,
-    padding: 3,
-  },
+  segmentWrap: { paddingHorizontal: 22, marginBottom: 8 },
+  segmentBackground: { flexDirection: "row", borderRadius: 12, padding: 3 },
   segmentItem: {
     flex: 1,
     borderRadius: 10,
@@ -510,16 +425,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  segmentLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 22,
-    paddingTop: 8,
-  },
-
+  segmentLabel: { fontSize: 13, fontWeight: "600" },
+  content: { flex: 1, paddingHorizontal: 22, paddingTop: 8 },
   card: {
     borderRadius: 18,
     padding: 18,
@@ -528,64 +435,30 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     marginBottom: 22,
   },
-  cardSubtitle: {
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  mainAmount: {
-    fontSize: 34,
-    fontWeight: "800",
-  },
-  chipsRow: {
-    flexDirection: "row",
-    marginTop: 14,
-    gap: 8,
-  },
+  cardSubtitle: { fontSize: 14, marginBottom: 4 },
+  mainAmount: { fontSize: 34, fontWeight: "800" },
+  chipsRow: { flexDirection: "row", marginTop: 14, gap: 8 },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
     backgroundColor: "rgba(142,142,147,0.12)",
   },
-  chipLabel: {
-    fontSize: 12,
-    color: "#6E6E73",
-    fontWeight: "500",
-  },
-
-  quickRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
+  chipLabel: { fontSize: 12, color: "#6E6E73", fontWeight: "500" },
+  quickRow: { flexDirection: "row", justifyContent: "space-between" },
   quickCard: {
     width: "48%",
     borderRadius: 18,
     paddingVertical: 16,
     paddingHorizontal: 14,
-    alignItems: "flex-start",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 10,
   },
-  quickTitle: {
-    marginTop: 12,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  quickSubtitle: {
-    marginTop: 2,
-    fontSize: 13,
-  },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 10,
-  },
-  emptyText: {
-    fontSize: 15,
-  },
-
+  quickTitle: { marginTop: 12, fontSize: 15, fontWeight: "700" },
+  quickSubtitle: { marginTop: 2, fontSize: 13 },
+  sectionTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10 },
+  emptyText: { fontSize: 15 },
   listCard: {
     borderRadius: 18,
     paddingHorizontal: 14,
@@ -594,74 +467,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 8,
   },
-  invoiceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-  },
-  invoiceId: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  invoiceClient: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  invoiceTotal: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  invoiceStatus: {
-    fontSize: 13,
-    marginTop: 2,
-  },
+  invoiceRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
+  invoiceId: { fontSize: 15, fontWeight: "600" },
+  invoiceClient: { fontSize: 13, marginTop: 2 },
+  invoiceTotal: { fontSize: 15, fontWeight: "700" },
+  invoiceStatus: { fontSize: 13, marginTop: 2 },
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: "rgba(120,120,128,0.25)",
     marginLeft: 4,
-  },
-
-  clientRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    gap: 12,
-  },
-  clientAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "rgba(0,122,255,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  clientAvatarInitial: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#007AFF",
-  },
-  clientName: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  clientMeta: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-
-  largeButton: {
-    marginTop: 24,
-    alignSelf: "center",
-    width: "100%",
-    height: 50,
-    borderRadius: 14,
-    backgroundColor: "#007AFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  largeButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
   },
 });

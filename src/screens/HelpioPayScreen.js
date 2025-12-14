@@ -189,10 +189,9 @@ export default function HelpioPayScreen({ navigation }) {
       return;
     }
 
-   if (!provider?._id) {
-  setErrorMessage("Provider profile not loaded yet.");
-  return;
-}
+   // Allow simulated payments even if provider isn't ready
+const providerId = provider?._id || null;
+
 
 
     setIsProcessing(true);
@@ -215,7 +214,7 @@ console.log("🌍 API BASE URL:", api.defaults.baseURL);
     await api.post("/api/terminal-payments-sim/simulate", {
   amount: Math.round(numericAmount * 100),
   currency: "usd",
-  providerId: provider._id, // ⭐ REQUIRED FOR REVENUE
+  providerId, // null-safe
 });
 
 

@@ -1,4 +1,3 @@
-// src/screens/LoginScreen.js
 import React, { useState } from "react";
 import {
   View,
@@ -18,6 +17,7 @@ import { BlurView } from "expo-blur";
 import { useTheme } from "../ThemeContext";
 import useAuthStore from "../store/auth";
 import { login as loginApi } from "../api/auth";
+import { api } from "../config/api"; // ✅ REQUIRED
 
 const HELP_BLUE = "#00A6FF";
 
@@ -38,29 +38,33 @@ export default function LoginScreen({ navigation }) {
     setLoading(true);
 
     try {
-      // 🔐 Call API directly
+      // 1️⃣ Login
       const data = await loginApi(email, password);
-      // expected: { token, user, provider }
+      // expected: { token, user }
 
       if (!data?.token || !data?.user) {
         throw new Error("Invalid login response");
       }
 
-      // ⭐ STORE AUTH GLOBALLY (ZUSTAND)
+      // 2️⃣ Fetch provider profile
+      let provider = null;
+      try {
+        const res = await api.get("/api/providers/me");
+        provider = res.data?.provider || null;
+      } catch {
+        provider = null;
+      }
+
+      // 3️⃣ Store everything in Zustand
       await useAuthStore.getState().setAuth({
         token: data.token,
         user: data.user,
-        provider: data.provider || null,
+        provider,
       });
 
       setLoading(false);
 
-      // 🔀 Redirect based on provider profile
-      if (!data.provider?._id) {
-        navigation.replace("ProviderOnboardingScreen");
-      } else {
-        navigation.replace("ProfessionalDashboardA");
-      }
+     
     } catch (err) {
       setLoading(false);
       Alert.alert(
@@ -84,7 +88,11 @@ export default function LoginScreen({ navigation }) {
             Login to your Helpio BusinessPlace account
           </Text>
 
-          <BlurView intensity={50} tint={theme.isDark ? "dark" : "light"} style={styles.card}>
+          <BlurView
+            intensity={50}
+            tint={theme.isDark ? "dark" : "light"}
+            style={styles.card}
+          >
             {/* Email */}
             <View style={styles.inputWrap}>
               <Ionicons name="mail-outline" size={22} color="#888" />
@@ -136,7 +144,8 @@ export default function LoginScreen({ navigation }) {
           {/* Register link */}
           <TouchableOpacity onPress={() => navigation.navigate("RegisterScreen")}>
             <Text style={[styles.registerText, { color: theme.subtext }]}>
-              Don’t have an account? <Text style={{ color: HELP_BLUE }}>Sign up</Text>
+              Don’t have an account?{" "}
+              <Text style={{ color: HELP_BLUE }}>Sign up</Text>
             </Text>
           </TouchableOpacity>
         </View>

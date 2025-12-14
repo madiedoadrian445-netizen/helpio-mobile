@@ -17,13 +17,16 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "../ThemeContext";
 import { api } from "../config/api";
-import { useAuth } from "../context/AuthContext";
+import useAuthStore from "../store/auth";
+
 
 const HELP_BLUE = "#00A6FF";
 
 export default function ProviderOnboardingScreen({ navigation }) {
   const { theme } = useTheme();
-  const { user, setUser } = useAuth();
+  const user = useAuthStore((state) => state.user);
+const token = useAuthStore((state) => state.token);
+
 
   const [businessName, setBusinessName] = useState("");
   const [phone, setPhone] = useState("");

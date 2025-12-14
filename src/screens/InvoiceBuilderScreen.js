@@ -253,6 +253,61 @@ React.useEffect(() => {
     };
   };
 
+
+const saveInvoiceToCRM = async () => {
+  const payload = buildInvoicePayload();
+
+  const token =
+    (await AsyncStorage.getItem("token")) ||
+    (await AsyncStorage.getItem("userToken")) ||
+    (await AsyncStorage.getItem("authToken")) ||
+    (await AsyncStorage.getItem("providerToken"));
+
+  if (!token) throw new Error("No auth token found");
+
+  const customerId = route?.params?.client?._id;
+  if (!customerId) throw new Error("No client selected");
+
+  const { items, numbers, invoiceMeta, taxPct, paid } = payload;
+
+  const response = await fetch(`${API_BASE_URL}/api/invoices`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token.trim()}`,
+    },
+    body: JSON.stringify({
+      customer: customerId,
+      items: items.map((i) => ({
+        description: i.desc || i.title || "",
+        qty: Number(i.qty) || 1,
+        rate: Number(i.rate) || 0,
+        amount: (Number(i.rate) || 0) * (Number(i.qty) || 0),
+      })),
+      subtotal: numbers.subtotal,
+      tax: numbers.tax,
+      taxPct: Number(taxPct) || 0,
+      total: numbers.total,
+      paid: Number(paid) || 0,
+      balance: numbers.balance,
+      invoiceNumber: invoiceMeta.number,
+      issueDate: invoiceMeta.date,
+      dueDate: invoiceMeta.due,
+      status: status || "DUE",
+      notes: "",
+    }),
+  });
+
+  if (!response.ok) {
+    const txt = await response.text();
+    throw new Error(txt);
+  }
+
+  return await response.json();
+};
+
+
+
   const onShare = async () => {
   try {
     const payload = buildInvoicePayload();
@@ -325,11 +380,18 @@ React.useEffect(() => {
     }
 
     const created = await response.json();
-    const invoiceId = created?.invoice?._id;
+const invoiceId = created?.invoice?._id;
 
-    console.log("Saved Invoice ID:", invoiceId);
+console.log("Saved Invoice ID:", invoiceId);
 
-    Alert.alert("Success", "Invoice saved + CRM timeline updated!");
+// ✅ Notify invoices screens to refresh
+navigation.navigate("InvoicesHome", {
+  refreshInvoices: Date.now(),
+  returnToTab: "dashboard",
+});
+
+Alert.alert("Success", "Invoice saved and added to invoices!");
+
   } catch (err) {
     console.error("share invoice error:", err);
     Alert.alert("Error", err.message || "Failed to share invoice");
@@ -763,7 +825,21 @@ React.useEffect(() => {
                   backgroundColor: darkMode ? "rgba(255,255,255,0.04)" : "#FFF",
                 },
               ]}
-              onPress={() => Alert.alert("Saved", "Invoice saved locally.")}
+              onPress={async () => {
+  try {
+    await saveInvoiceToCRM();
+
+    navigation.navigate("InvoicesHome", {
+      refreshInvoices: Date.now(),
+      returnToTab: "dashboard",
+    });
+
+    Alert.alert("Saved", "Invoice saved to invoices.");
+  } catch (err) {
+    Alert.alert("Error", err.message || "Failed to save invoice");
+  }
+}}
+
             >
               <Text style={[styles.secondaryTxt, { color: darkMode ? "#FFF" : "#111" }]}>
                 Save

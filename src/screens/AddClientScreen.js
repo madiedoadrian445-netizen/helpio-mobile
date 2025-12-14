@@ -18,7 +18,8 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../ThemeContext";
 import { api } from "../config/api";
-import { useAuth } from "../context/AuthContext";
+import useAuthStore from "../store/auth";
+
 
 /* ----------------------------------------------------
    MEMOIZED FIELD COMPONENT
@@ -47,7 +48,9 @@ const Field = memo(function Field({
 
 export default function AddClientScreen({ navigation }) {
   const { darkMode, theme } = useTheme();
-  const { user } = useAuth();
+const user = useAuthStore((state) => state.user);
+const token = useAuthStore((state) => state.token);
+
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -66,23 +69,40 @@ export default function AddClientScreen({ navigation }) {
     );
   }, []);
 
+const isValidEmail = (value) => {
+  if (!value) return true; // ✅ email optional
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+};
+
+
+
   /* -------------------------
        SAVE TO BACKEND (FIXED)
   ------------------------- */
   const handleSave = async () => {
-    if (!fullName.trim().length) return;
+   if (!fullName.trim() || fullName.trim().length < 2) {
+  Alert.alert("Name required", "Client name must be at least 2 characters");
+  return;
+}
+
+if (!isValidEmail(email)) {
+  Alert.alert("Invalid email", "Please enter a valid email address");
+  return;
+}
+
 
     try {
       setLoading(true);
 
       const payload = {
-        name: fullName.trim(),
-        phone,
-        email,
-        company,
-        address,
-        notes,
-      };
+  name: fullName.trim(),
+  phone: phone || undefined,
+  email: email?.trim() || undefined,
+  company: company || undefined,
+  address: address || undefined,
+  notes: notes || undefined,
+};
+
 
       console.log("📤 Sending client payload:", payload);
 
@@ -122,9 +142,11 @@ export default function AddClientScreen({ navigation }) {
           <Text style={[styles.headerText, { color: "#007AFF" }]}>Cancel</Text>
         </TouchableOpacity>
 
-        <View class={styles.headerCenter}>
+        <View style={styles.headerCenter}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>New Client</Text>
         </View>
+
+
 
         <TouchableOpacity
           style={styles.headerSide}
