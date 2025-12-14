@@ -124,17 +124,17 @@ const [businessAddr2, setBusinessAddr2] = useState("Big City, New York");
 const [businessPhone, setBusinessPhone] = useState("(555) 555-5555");
 const [businessEmail, setBusinessEmail] = useState("abclawncare@example.com");
 
-const firstClient = clients.length > 0 ? clients[0] : null;
+const [clientName, setClientName] = useState("");
+const [clientAddr1, setClientAddr1] = useState("");
+const [clientPhone, setClientPhone] = useState("");
+const [clientEmail, setClientEmail] = useState("");
 
-const [clientName, setClientName] = useState(firstClient?.name || "");
-const [clientAddr1, setClientAddr1] = useState(firstClient?.address || "");
-const [clientPhone, setClientPhone] = useState(firstClient?.phone || "");
-const [clientEmail, setClientEmail] = useState(firstClient?.email || "");
 
 const [invoiceNo, setInvoiceNo] = useState("INVO001");
 const [invoiceDate, setInvoiceDate] = useState("Oct 30, 2025");
 const [invoiceDue, setInvoiceDue] = useState("On Receipt");
 const [status, setStatus] = useState("DUE");
+const [selectedClient, setSelectedClient] = useState(null);
 
 const [items, setItems] = useState([
   { id: "1", title: "", note: "", rate: "", qty: "1" },
@@ -191,18 +191,16 @@ const [paid, setPaid] = useState("");
 
 // ⭐ FIX — Automatically load first client into invoice form
 React.useEffect(() => {
-  if (clients.length > 0 && !clientName) {
-    const c = clients[0];
+ if (clients.length > 0 && !selectedClient) {
+  const c = clients[0];
 
-    setClientName(c.name || "");
-    setClientAddr1(c.address || "");
-    setClientPhone(c.phone || "");
-    setClientEmail(c.email || "");
+  setSelectedClient(c);
+  setClientName(c.name || "");
+  setClientAddr1(c.address || "");
+  setClientPhone(c.phone || "");
+  setClientEmail(c.email || "");
+}
 
-    if (route?.params) {
-      route.params.client = c;
-    }
-  }
 }, [clients]);
 
 
@@ -265,8 +263,9 @@ const saveInvoiceToCRM = async () => {
 
   if (!token) throw new Error("No auth token found");
 
-  const customerId = route?.params?.client?._id;
-  if (!customerId) throw new Error("No client selected");
+ const customerId = selectedClient?._id;
+if (!customerId) throw new Error("No client selected");
+
 
   const { items, numbers, invoiceMeta, taxPct, paid } = payload;
 
@@ -327,12 +326,12 @@ const saveInvoiceToCRM = async () => {
       return;
     }
 
-    const customerId = route?.params?.client?._id;
+    const customerId = selectedClient?._id;
+if (!customerId) {
+  Alert.alert("Missing Client", "Select a client before sharing invoice.");
+  return;
+}
 
-    if (!customerId) {
-      Alert.alert("Missing Client", "Select a client before sharing invoice.");
-      return;
-    }
 
     const {
       items,
@@ -382,6 +381,7 @@ const saveInvoiceToCRM = async () => {
     const created = await response.json();
 const invoiceId = created?.invoice?._id;
 
+
 console.log("Saved Invoice ID:", invoiceId);
 
 // ✅ Notify invoices screens to refresh
@@ -409,18 +409,18 @@ Alert.alert("Success", "Invoice saved and added to invoices!");
   const [clientPickerVisible, setClientPickerVisible] = useState(false);
 
  const handleSelectClient = (client) => {
-  setClientName(client.name);
-  setClientAddr1(client.address);
-  setClientPhone(client.phone);
-  setClientEmail(client.email);
+  setSelectedClient(client); // ✅ SINGLE SOURCE OF TRUTH
 
-  // 🔥 Save selected client to route params for invoice saving
-  if (route?.params) {
-    route.params.client = client;
-  }
+  setClientName(client.name || "");
+  setClientAddr1(client.address || "");
+  setClientPhone(client.phone || "");
+  setClientEmail(client.email || "");
 
   setClientPickerVisible(false);
+
+  console.log("Selected client id:", client?._id);
 };
+
 
 
   const y = useRef(new Animated.Value(0)).current;
