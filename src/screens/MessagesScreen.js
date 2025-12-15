@@ -207,13 +207,10 @@ export default function MessagesScreen() {
                 }
               >
                 <Image
-  source={
-    msg.avatar
-      ? { uri: msg.avatar }
-      : require("../../assets/images/avatar_placeholder.png")
-  }
+  source={{ uri: msg.avatar || "https://ui-avatars.com/api/?name=User&background=0A6CFF&color=fff" }}
   style={styles.avatar}
 />
+
 
 
                 <View style={{ flex: 1 }}>
