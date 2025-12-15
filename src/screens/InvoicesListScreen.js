@@ -81,8 +81,9 @@ export default function InvoicesListScreen({ refreshKey }) {
                     {inv.invoiceNumber || `INV-${inv._id.slice(-4)}`}
                   </Text>
                   <Text style={{ color: theme.subtleText }}>
-                    {inv.customer?.name || "Unknown client"}
-                  </Text>
+  {inv.customerSnapshot?.name || "Unknown client"}
+</Text>
+
                 </View>
 
                 <View style={{ alignItems: "flex-end" }}>
