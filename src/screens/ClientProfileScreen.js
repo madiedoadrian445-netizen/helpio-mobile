@@ -419,17 +419,21 @@ useEffect(() => {
             {!timelineLoading &&
               timeline.map((entry) => (
                 <TimelineItem
-                  key={entry._id}
-                  icon={iconForType(entry.type)}
-                  title={entry.title}
-                  subtitle={
-                    entry.description ||
-                    (entry.amount
-                      ? `$${entry.amount.toLocaleString("en-US")}`
-                      : "")
-                  }
-                  time={formatRelativeTime(entry.createdAt)}
-                />
+  key={entry._id}
+  icon={iconForType(entry.type)}
+  title={entry.title}
+  subtitle={
+    entry.description ||
+    (entry.amount
+      ? `$${entry.amount.toLocaleString("en-US")}`
+      : "")
+  }
+  time={formatRelativeTime(entry.createdAt)}
+  type={entry.type}
+  invoiceId={entry.invoice}
+  navigation={navigation}
+/>
+
               ))}
           </View>
         </View>
@@ -474,28 +478,63 @@ function QuickAction({ icon, label, onPress, disabled }) {
   );
 }
 
-function TimelineItem({ icon, title, subtitle, time }) {
-  return (
-    <View style={timelineStyles.row}>
-      <View style={timelineStyles.iconColumn}>
-        <View style={timelineStyles.iconCircle}>
-          <Ionicons name={icon} size={16} color="#fff" />
-        </View>
-        <View style={timelineStyles.verticalLine} />
-      </View>
+function TimelineItem({
+  icon,
+  title,
+  subtitle,
+  time,
+  type,
+  invoiceId,
+  navigation,
+}) {
+  const isInvoice = type === "invoice" && invoiceId;
 
-      <View style={timelineStyles.textColumn}>
-        <Text style={timelineStyles.title}>{title}</Text>
-        {!!subtitle && (
-          <Text style={timelineStyles.subtitle} numberOfLines={2}>
-            {subtitle}
-          </Text>
-        )}
-        <Text style={timelineStyles.time}>{time}</Text>
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      disabled={!isInvoice}
+      onPress={() => {
+        if (isInvoice) {
+          navigation.navigate("InvoicePreview", {
+            invoiceId,
+          });
+        }
+      }}
+    >
+      <View style={timelineStyles.row}>
+        <View style={timelineStyles.iconColumn}>
+          <View style={timelineStyles.iconCircle}>
+            <Ionicons name={icon} size={16} color="#fff" />
+          </View>
+          <View style={timelineStyles.verticalLine} />
+        </View>
+
+        <View style={timelineStyles.textColumn}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text style={timelineStyles.title}>{title}</Text>
+
+            {isInvoice && (
+              <Ionicons
+                name="chevron-forward"
+                size={13}
+                color="#C7C7CC"
+                style={{ marginLeft: 6 }}
+              />
+            )}
+          </View>
+
+          {!!subtitle && (
+            <Text style={timelineStyles.subtitle} numberOfLines={2}>
+              {subtitle}
+            </Text>
+          )}
+          <Text style={timelineStyles.time}>{time}</Text>
+        </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
+
 
 /* ---------- STYLES (unchanged visuals) ---------- */
 
