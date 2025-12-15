@@ -14,7 +14,6 @@ import {
   Platform,
   Easing,
   KeyboardAvoidingView,
-  InteractionManager,
   Dimensions,
   Modal,
   ScrollView,
@@ -25,6 +24,10 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import PhoneBlurIcon from "../../assets/images/phone_blur.png";
 import SaveBlurIcon from "../../assets/images/save_blur.png";
+import { useFocusEffect } from "@react-navigation/native";
+import { api } from "../config/api";
+
+
 
 const { width, height } = Dimensions.get("window");
 const HELP_BLUE = "#00A6FF";
@@ -73,9 +76,18 @@ export default function ChatDetailScreen({ route, navigation }) {
   const displayName = name || "Chat";
   const company = route?.params?.companyName || route?.params?.name || "";
   const phoneNumber = route?.params?.phoneNumber || route?.params?.phone || "";
+const customerId =
+  route?.params?.customerId || route?.params?.customer?._id || null;
+
+const [conversationId, setConversationId] = useState(null);
+const [nextCursor, setNextCursor] = useState(null);
+const [loadingHistory, setLoadingHistory] = useState(true);
+const [sending, setSending] = useState(false);
+
+
 
   const [message, setMessage] = useState("");
-  const [status, setStatus] = useState("read");
+ 
   const [userScrolled, setUserScrolled] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerImages, setViewerImages] = useState([]);
@@ -90,11 +102,17 @@ export default function ChatDetailScreen({ route, navigation }) {
   const callOpacity = useRef(new Animated.Value(0.4)).current;
   const callHintTimeout = useRef(null);
 
-  const [data, setData] = useState([
-    { id: "m1", sender: "them", text: "Papo crystallllll", at: Date.now() - 1e6 },
-    { id: "m2", sender: "them", text: "Straight glass", at: Date.now() - 9e5 },
-    { id: "m3", sender: "me", text: "Papi tu sabe claro Que si 🥂🥂", at: Date.now() - 8e5 },
-  ]);
+  const [data, setData] = useState([]);
+
+const mapMessageFromApi = (m) => ({
+  id: m._id,
+  sender: m.senderRole === "provider" ? "me" : "them",
+  text: m.text || null,
+  images: m.imageUrls?.length ? m.imageUrls : null,
+  at: new Date(m.createdAt).getTime(),
+  deliveredAt: m.deliveredAt,
+  readAt: m.readAt,
+});
 
   /* ----------------- Keyboard Animation ----------------- */
   useEffect(() => {
@@ -106,6 +124,7 @@ export default function ChatDetailScreen({ route, navigation }) {
         useNativeDriver: false,
       }).start();
     });
+
     const hide = Keyboard.addListener("keyboardWillHide", (e) => {
       Animated.timing(keyboardAnim, {
         toValue: 0,
@@ -120,6 +139,9 @@ export default function ChatDetailScreen({ route, navigation }) {
     };
   }, [keyboardAnim]);
 
+
+
+  
   /* ----------------- Call Icon Lock ----------------- */
   useEffect(() => {
     if (hasSentMessage) {
@@ -139,6 +161,8 @@ export default function ChatDetailScreen({ route, navigation }) {
       if (callHintTimeout.current) clearTimeout(callHintTimeout.current);
     };
   }, []);
+
+
 
   /* ----------------- Row Builder ----------------- */
   const rows = useMemo(() => {
@@ -161,36 +185,124 @@ export default function ChatDetailScreen({ route, navigation }) {
     });
   }, []);
 
+const openConversation = useCallback(async () => {
+  if (!customerId) return null;
+
+  const res = await api.post(`/api/conversations/with-customer/${customerId}`);
+  const cid = res.data?.conversation?._id || null;
+
+  if (cid) setConversationId(cid);
+  return cid;
+}, [customerId]);
+
+const loadLatestMessages = useCallback(async (cid) => {
+  try {
+    setLoadingHistory(true);
+    const res = await api.get(`/api/conversations/${cid}/messages?limit=40`);
+    const msgs = res.data?.messages || [];
+    setData(msgs.map(mapMessageFromApi));
+    setNextCursor(res.data?.nextCursor || null);
+
+    // unlock call icon if there are any messages in chat (optional)
+    if (msgs.length > 0) setHasSentMessage(true);
+  } finally {
+    setLoadingHistory(false);
+  }
+}, []);
+
+const markRead = useCallback(async (cid) => {
+  try {
+    await api.post(`/api/conversations/${cid}/read`);
+  } catch (e) {
+    // silent
+  }
+}, []);
+
+
+useEffect(() => {
+  let alive = true;
+
+  (async () => {
+    try {
+      const cid = await openConversation();
+      if (!cid || !alive) return;
+
+      await loadLatestMessages(cid);
+      await markRead(cid);
+    } catch (err) {
+      console.log("❌ Chat open/load error:", err);
+    }
+  })();
+
+  return () => {
+    alive = false;
+  };
+}, [openConversation, loadLatestMessages, markRead]);
+
+
+useFocusEffect(
+  useCallback(() => {
+    if (conversationId) {
+      markRead(conversationId);
+    }
+  }, [conversationId, markRead])
+);
+
   /* ----------------- Send Message ----------------- */
-  const send = useCallback(() => {
-    const txt = message.trim();
-    if (!txt) return;
-    const id = String(Date.now());
-    const newMsg = { id, sender: "me", text: txt, at: Date.now() };
+ const send = useCallback(async () => {
+  const txt = message.trim();
+  if (!txt) return;
+  if (!conversationId) return;
+  if (sending) return;
 
-    setData((p) => [...p, newMsg]);
-    setMessage("");
-    setStatus("delivered");
+  const tempId = `tmp_${Date.now()}`;
 
-    if (!hasSentMessage) {
-      setHasSentMessage(true);
-      setShowCallHint(false);
+  // iMessage-style optimistic UI
+  const optimistic = {
+    id: tempId,
+    sender: "me",
+    text: txt,
+    at: Date.now(),
+  };
+
+  setData((p) => [...p, optimistic]);
+  setMessage("");
+  setSending(true);
+
+  if (!hasSentMessage) {
+    setHasSentMessage(true);
+    setShowCallHint(false);
+  }
+
+  scrollToBottom();
+
+  try {
+    const res = await api.post(
+      `/api/conversations/${conversationId}/messages`,
+      { text: txt }
+    );
+
+    const real = res.data?.message;
+
+    if (real?._id) {
+      setData((p) =>
+        p.map((m) => (m.id === tempId ? mapMessageFromApi(real) : m))
+      );
     }
-
-    if (userScrolled) {
-      InteractionManager.runAfterInteractions(() => {
-        setTimeout(() => {
-          listRef.current?.scrollToEnd({ animated: true });
-          setUserScrolled(false);
-        }, 50);
-      });
-    } else {
-      scrollToBottom();
-    }
-
-    // fake read
-    setTimeout(() => setStatus("read"), 2000);
-  }, [message, userScrolled, hasSentMessage, scrollToBottom]);
+  } catch (err) {
+    console.log("❌ Send message error:", err?.response?.data || err);
+    setData((p) => p.filter((m) => m.id !== tempId));
+    Alert.alert("Message failed", "Could not send. Try again.");
+  } finally {
+    setSending(false);
+  }
+}, [
+  message,
+  conversationId,
+  sending,
+  hasSentMessage,
+  scrollToBottom,
+]);
 
   /* ----------------- Camera & Library ----------------- */
   const openCamera = async () => {
@@ -256,11 +368,12 @@ export default function ChatDetailScreen({ route, navigation }) {
 
         {item.images && <>{renderImageCollage(item.images, mine)}</>}
 
-        {mine && item.id === lastMine && (
-          <Text style={styles.statusText}>
-            {status === "read" ? `Read ${formatTime(item.at)}` : "Delivered"}
-          </Text>
-        )}
+{mine && item.id === lastMine && (
+  <Text style={styles.statusText}>
+    {item.readAt ? `Read ${formatTime(item.readAt)}` : "Delivered"}
+  </Text>
+)}
+
       </View>
     );
   };
