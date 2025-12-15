@@ -1,5 +1,5 @@
 // src/screens/InvoicesHomeScreen.js
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import {
   SafeAreaView,
   View,
@@ -315,44 +315,52 @@ export default function InvoicesHomeScreen({ navigation }) {
                   : "#FFCC00";
 
               return (
-                <View key={inv._id}>
-                  <View style={styles.invoiceRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.invoiceId, { color: theme.text }]}>
-                        {inv.invoiceNumber || `INV-${inv._id.slice(-4)}`}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.invoiceClient,
-                          { color: theme.subtleText },
-                        ]}
-                      >
-                        {inv.customer?.name || "Unknown client"}
-                      </Text>
-                    </View>
+             
+  <View key={inv._id}>
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={() =>
+        navigation.navigate("InvoicePreview", {
+          invoiceId: inv._id,
+        })
+      }
+    >
+      <View style={styles.invoiceRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.invoiceId, { color: theme.text }]}>
+            {inv.invoiceNumber || `INV-${inv._id.slice(-4)}`}
+          </Text>
+          <Text
+            style={[
+              styles.invoiceClient,
+              { color: theme.subtleText },
+            ]}
+          >
+            {inv.customer?.name || "Unknown client"}
+          </Text>
+        </View>
 
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text
-                        style={[
-                          styles.invoiceTotal,
-                          { color: theme.text },
-                        ]}
-                      >
-                        ${Number(inv.total).toFixed(2)}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.invoiceStatus,
-                          { color: statusColor },
-                        ]}
-                      >
-                        {inv.status}
-                      </Text>
-                    </View>
-                  </View>
-                  {!isLast && <View style={styles.divider} />}
-                </View>
-              );
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={[styles.invoiceTotal, { color: theme.text }]}>
+            ${Number(inv.total).toFixed(2)}
+          </Text>
+          <Text
+            style={[
+              styles.invoiceStatus,
+              { color: statusColor },
+            ]}
+          >
+            {inv.status}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+
+    {!isLast && <View style={styles.divider} />}
+  </View>
+);
+
+              
             })}
           </View>
         )}

@@ -336,7 +336,7 @@ function RootNavigator() {
         <Stack.Screen name="AlertsRemindersScreen" component={AlertsRemindersScreen} />
         <Stack.Screen name="InvoiceBuilderScreen" component={InvoiceBuilderScreen} />
         <Stack.Screen name="ClientProfile" component={ClientProfileScreen} />
-        <Stack.Screen name="InvoicePreviewScreen" component={InvoicePreviewScreen} />
+        <Stack.Screen name="InvoicePreview" component={InvoicePreviewScreen} />
         <Stack.Screen name="SubscriptionPlans" component={SubscriptionPlansScreen} />
         <Stack.Screen name="ClientDetail" component={ClientDetailScreen} />
         <Stack.Screen name="WebhookEventsScreen" component={WebhookEventsScreen} />
