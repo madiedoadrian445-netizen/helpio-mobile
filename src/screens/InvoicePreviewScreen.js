@@ -235,25 +235,25 @@ export default function InvoicePreviewScreen({ navigation, route }) {
       const res = await api.get(`/api/invoices/${invoiceId}`);
       const i = res.data.invoice;
 
-      setInvoiceData({
-        business: i.providerSnapshot || {},
-        client: i.customerSnapshot || {},
-        items: i.items || [],
-        numbers: {
-          subtotal: i.subtotal,
-          tax: i.taxAmount,
-          total: i.total,
-          balance: i.balanceDue,
-        },
-        taxPct: i.taxRate || 0,
-        paid: i.amountPaid || 0,
-        invoiceMeta: {
-          number: i.invoiceNumber,
-          date: i.issueDate,
-          due: i.dueDate,
-        },
-      });
-    })();
+     setInvoiceData({
+  business: i.providerSnapshot || {},
+  client: i.customerSnapshot || {},
+  items: i.items || [],
+  numbers: {
+    subtotal: i.subtotal,
+    tax: i.tax,          // ✅ correct
+    total: i.total,
+    balance: i.balance, // ✅ correct
+  },
+  taxPct: i.taxPct || 0, // ✅ correct
+  paid: i.paid || 0,     // ✅ correct
+  invoiceMeta: {
+    number: i.invoiceNumber,
+    date: i.issueDate,
+    due: i.dueDate,
+  },
+});
+ })();
   }, [invoiceId]);
 
   const html = useMemo(
