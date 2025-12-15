@@ -15,12 +15,11 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import axios from "axios";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import { useTheme } from "../ThemeContext";
+import { api } from "../config/api";
 
-const API_URL = "https://helpio-backend.onrender.com/api/messages";
 const HELP_IO_BLUE = "#00A6FF";
 
 export default function MessagesScreen() {
@@ -57,60 +56,34 @@ export default function MessagesScreen() {
 
   /* ---------------- Fetch Messages ---------------- */
   const fetchMessages = async () => {
-    try {
-      const res = await axios.get(API_URL, { timeout: 15000 });
-      setMessages(res.data);
-    } catch (err) {
-      console.log("❌ Error fetching messages:", err.message);
+  try {
+    setLoading(true);
 
-      // fallback demo data
-      setMessages([
-        {
-          id: 1,
-          name: "Miami Jetski Shop",
-          lastMsg: "Great, I’ll see you then.",
-          time: "9:20 AM",
-          avatar: "https://i.imgur.com/NEeF2ev.png",
-          unread: true,
-        },
-        {
-          id: 2,
-          name: "Veloz Contractors",
-          lastMsg: "Sure, I can be there around 9:00…",
-          time: "8:37 AM",
-          avatar: "https://i.imgur.com/YJp9iI2.png",
-          unread: false,
-        },
-        {
-          id: 3,
-          name: "AFM Showroom",
-          lastMsg: "No problem!",
-          time: "Yesterday",
-          avatar: "https://i.imgur.com/qxVN0iD.png",
-          unread: false,
-        },
-        {
-          id: 4,
-          name: "South Florida Pools",
-          lastMsg: "Thank you!",
-          time: "Yesterday",
-          avatar: "https://i.imgur.com/bBTD7hL.png",
-          unread: true,
-        },
-        {
-          id: 5,
-          name: "Lisa Gibson",
-          lastMsg: "Alright, I can do that.",
-          time: "Monday",
-          avatar: "https://randomuser.me/api/portraits/women/32.jpg",
-          unread: false,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    const res = await api.get("/api/conversations");
+
+    const conversations = res.data?.conversations || [];
+
+    const mapped = conversations.map((c) => ({
+      id: c._id,
+      customerId: c.customer?._id,
+      name: c.customer?.name || "Unknown",
+      avatar: c.customer?.avatar || null,
+      lastMsg: c.lastMessage?.text || "No messages yet",
+      time: new Date(c.updatedAt).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      }),
+      unread: c.unreadCount > 0,
+    }));
+
+    setMessages(mapped);
+  } catch (err) {
+    console.log("❌ Fetch conversations error:", err);
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+};
 
   useEffect(() => {
     fetchMessages();
@@ -121,17 +94,10 @@ export default function MessagesScreen() {
     fetchMessages();
   };
 
-  /* ---------------- Auto-open Chat ---------------- */
-  useEffect(() => {
-    if (route.params?.chatTarget && route.params.autoStart) {
-      const targetName = route.params.chatTarget;
-      if (!loading) navigation.navigate("ChatDetail", { name: targetName });
-    }
-  }, [route.params, loading]);
-
   const filteredMessages = messages.filter((m) =>
-    m.name.toLowerCase().includes(search.toLowerCase())
-  );
+  m.name.toLowerCase().includes(search.toLowerCase())
+);
+
 
   /* ---------------- UI ---------------- */
   return (
@@ -232,13 +198,23 @@ export default function MessagesScreen() {
                   { backgroundColor: theme.card },
                 ]}
                 onPress={() =>
-                  navigation.navigate("ChatDetail", {
-                    name: msg.name,
-                    avatar: msg.avatar,
-                  })
+                 navigation.navigate("ChatDetail", {
+  customerId: msg.customerId,
+  name: msg.name,
+  avatar: msg.avatar,
+})
+
                 }
               >
-                <Image source={{ uri: msg.avatar }} style={styles.avatar} />
+                <Image
+  source={
+    msg.avatar
+      ? { uri: msg.avatar }
+      : require("../../assets/images/avatar_placeholder.png")
+  }
+  style={styles.avatar}
+/>
+
 
                 <View style={{ flex: 1 }}>
                   <Text
