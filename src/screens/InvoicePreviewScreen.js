@@ -39,7 +39,16 @@ function buildInvoiceHtml({
       const q = parseFloat(it.qty) || 0;
       const amt = r * q;
 
-      const itemTitle = (it.desc || "-").toString().replace(/</g, "&lt;");
+     const itemTitle = (
+  it.title ||
+  it.name ||
+  it.service ||
+  it.description ||
+  "-"
+)
+  .toString()
+  .replace(/</g, "&lt;");
+
       const itemDesc = it.description
         ? `<div style="font-size:12px;color:#5E5E5E;margin-top:2px;">${it.description
             .toString()
