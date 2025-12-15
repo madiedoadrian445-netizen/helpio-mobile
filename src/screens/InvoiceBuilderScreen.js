@@ -324,9 +324,10 @@ if (!customerId) throw new Error("No client selected");
   // -----------------------------------------------------
 
   const onPreview = () => {
-    const payload = buildInvoicePayload();
-    navigation.navigate("InvoicePreviewScreen", payload);
-  };
+  const payload = buildInvoicePayload();
+  navigation.navigate("InvoicePreview", payload);
+};
+
 
   const [clientPickerVisible, setClientPickerVisible] = useState(false);
 

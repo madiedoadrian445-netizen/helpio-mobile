@@ -336,7 +336,7 @@ export default function InvoicesHomeScreen({ navigation }) {
               { color: theme.subtleText },
             ]}
           >
-            {inv.customer?.name || "Unknown client"}
+           {inv.customerSnapshot?.name || "Unknown client"}
           </Text>
         </View>
 

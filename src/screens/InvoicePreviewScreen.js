@@ -22,7 +22,7 @@ const currency = (n) =>
   });
 
 /* --------------------------------------------------
-   HTML BUILDER (UNCHANGED)
+   HTML BUILDER (ORIGINAL — UNCHANGED)
 -------------------------------------------------- */
 function buildInvoiceHtml({
   business = {},
@@ -82,21 +82,58 @@ function buildInvoiceHtml({
         padding-bottom: 60px;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       }
-      .page { width: 816px; background: white; padding: 28px; }
+      .page {
+        width: 816px;
+        min-height: 900px;
+        background: white;
+        padding: 28px;
+      }
       h1 { margin:0; font-size:24px; font-weight:800; }
       h2 { margin:0 0 6px 0; font-size:20px; font-weight:700; }
       .meta { font-size:13.5px; color:#4a4a4a; margin:2px 0; }
       .section { margin-top:8px; font-size:12px; font-weight:700; color:#666; }
       .hr { height:1px; background:#e6e6ea; margin:18px 0; }
-      .table { width:100%; border:1px solid #e6e6ea; border-collapse: collapse; }
+      .table {
+        width:100%;
+        border:1px solid #e6e6ea;
+        border-collapse: collapse;
+        border-radius:12px;
+        overflow:hidden;
+      }
       .thead { background:#f0f0f3; }
-      th { padding:10px 12px; font-size:12px; font-weight:700; color:#666; }
-      .summaryRow { display:flex; justify-content:space-between; margin:4px 0; font-size:13.5px; }
-      footer { text-align:center; margin-top:220px; }
-      footer .brand { color:${HELP_BLUE}; font-weight:600; }
+      th {
+        text-align:left;
+        padding:10px 12px;
+        font-size:12px;
+        font-weight:700;
+        color:#666;
+      }
+      .summaryRow {
+        display:flex;
+        justify-content:space-between;
+        margin:4px 0;
+        font-size:13.5px;
+      }
+      footer {
+        text-align:center;
+        margin-top: 220px;
+      }
+      footer .thanks {
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 4px;
+        color: #333;
+      }
+      footer .powered {
+        font-size: 12px;
+        color: #555;
+      }
+      footer .brand {
+        color: ${HELP_BLUE};
+        font-weight: 600;
+      }
     </style>
   </head>
-
   <body>
     <div class="page">
       <table style="width:100%;">
@@ -104,7 +141,9 @@ function buildInvoiceHtml({
           <td style="width:82px;">${logoImg}</td>
           <td style="padding-left:14px;">
             <h1>${business.name || ""}</h1>
+            <div class="meta">${business.line2 || ""}</div>
             <div class="meta">${business.addr1 || ""}</div>
+            <div class="meta">${business.addr2 || ""}</div>
             <div class="meta">${business.phone || ""}</div>
             <div class="meta">${business.email || ""}</div>
           </td>
@@ -113,12 +152,33 @@ function buildInvoiceHtml({
 
       <div class="hr"></div>
 
-      <h2>${client.name || ""}</h2>
+      <table style="width:100%;">
+        <tr>
+          <td style="width:60%;">
+            <div class="section">BILL TO</div>
+            <h2>${client.name || ""}</h2>
+            <div class="meta">${client.addr1 || ""}</div>
+            <div class="meta">${client.phone || ""}</div>
+            <div class="meta">${client.email || ""}</div>
+          </td>
+          <td style="width:40%;">
+            <table style="width:100%;font-size:13.5px;">
+              <tr><td>INVOICE</td><td style="text-align:right;">${invoiceMeta.number || ""}</td></tr>
+              <tr><td>DUE</td><td style="text-align:right;">${invoiceMeta.due || ""}</td></tr>
+              <tr><td>DATE</td><td style="text-align:right;">${invoiceMeta.date || ""}</td></tr>
+              <tr>
+                <td style="font-weight:800;padding-top:10px;">BALANCE DUE</td>
+                <td style="text-align:right;font-weight:800;">${currency(numbers.balance || 0)}</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
 
-      <table class="table">
+      <table class="table" style="margin-top:16px;">
         <thead class="thead">
           <tr>
-            <th>ITEM</th>
+            <th>ITEM & DESCRIPTION</th>
             <th style="text-align:right;">RATE</th>
             <th style="text-align:right;">QTY</th>
             <th style="text-align:right;">AMOUNT</th>
@@ -127,14 +187,21 @@ function buildInvoiceHtml({
         <tbody>${rowsHtml}</tbody>
       </table>
 
-      <div style="margin-top:20px;">
-        <div class="summaryRow"><div>TOTAL</div><div>${currency(numbers.total || 0)}</div></div>
-        <div class="summaryRow"><div>PAID</div><div>${currency(paid || 0)}</div></div>
-        <div class="summaryRow"><b>BALANCE</b><b>${currency(numbers.balance || 0)}</b></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:24px;">
+        <div style="width:260px;">
+          <div class="summaryRow"><div>SUBTOTAL</div><div>${currency(numbers.subtotal || 0)}</div></div>
+          <div class="summaryRow"><div>SALES TAX (${taxPct}%)</div><div>${currency(numbers.tax || 0)}</div></div>
+          <div class="summaryRow"><div>TOTAL</div><div>${currency(numbers.total || 0)}</div></div>
+          <div class="summaryRow"><div>PAID</div><div>${currency(paid || 0)}</div></div>
+          <div class="summaryRow"><b>BALANCE DUE</b><b>${currency(numbers.balance || 0)}</b></div>
+        </div>
       </div>
 
       <footer>
-        Powered by <span class="brand">Helpio BusinessPlace</span>
+        <div class="thanks">Thank you for your business!</div>
+        <div class="powered">
+          Powered by <span class="brand">Helpio BusinessPlace</span>
+        </div>
       </footer>
     </div>
   </body>
@@ -147,77 +214,59 @@ function buildInvoiceHtml({
 -------------------------------------------------- */
 export default function InvoicePreviewScreen({ navigation, route }) {
   const { darkMode } = useTheme();
-
-  const routeParams = route?.params || {};
-  const invoiceId = routeParams.invoiceId;
+  const params = route?.params || {};
+  const invoiceId = params.invoiceId;
 
   const [invoiceData, setInvoiceData] = useState(null);
-  const [loading, setLoading] = useState(!!invoiceId);
 
   useEffect(() => {
     if (!invoiceId) return;
 
-    const loadInvoice = async () => {
-  try {
-    const res = await api.get(`/api/invoices/${invoiceId}`);
-    const invoice = res.data.invoice;
+    (async () => {
+      const res = await api.get(`/api/invoices/${invoiceId}`);
+      const i = res.data.invoice;
 
-        setInvoiceData({
-          business: invoice.providerSnapshot || {},
-          client: invoice.customerSnapshot || {},
-          items: invoice.items || [],
-          numbers: {
-            subtotal: invoice.subtotal,
-            tax: invoice.taxAmount,
-            total: invoice.total,
-            balance: invoice.balanceDue,
-          },
-          taxPct: invoice.taxRate || 0,
-          paid: invoice.amountPaid || 0,
-          invoiceMeta: {
-            number: invoice.invoiceNumber,
-            date: invoice.issueDate,
-            due: invoice.dueDate,
-          },
-        });
-      } catch (e) {
-        console.error("❌ Failed to load invoice", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadInvoice();
+      setInvoiceData({
+        business: i.providerSnapshot || {},
+        client: i.customerSnapshot || {},
+        items: i.items || [],
+        numbers: {
+          subtotal: i.subtotal,
+          tax: i.taxAmount,
+          total: i.total,
+          balance: i.balanceDue,
+        },
+        taxPct: i.taxRate || 0,
+        paid: i.amountPaid || 0,
+        invoiceMeta: {
+          number: i.invoiceNumber,
+          date: i.issueDate,
+          due: i.dueDate,
+        },
+      });
+    })();
   }, [invoiceId]);
 
-  const previewParams = invoiceId ? invoiceData : routeParams;
-
-  const html = useMemo(() => {
-  if (!previewParams) return "<html></html>";
-  return buildInvoiceHtml(previewParams);
-}, [previewParams]);
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <Text style={{ textAlign: "center", marginTop: 40 }}>
-          Loading invoice…
-        </Text>
-      </SafeAreaView>
-    );
-  }
+  const html = useMemo(
+    () => buildInvoiceHtml(invoiceId ? invoiceData || {} : params),
+    [invoiceId, invoiceData, params]
+  );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: darkMode ? "#000" : "#F2F2F7" }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Invoice Preview</Text>
-        <View style={{ width: 22 }} />
+        <View style={{ width: 44 }} />
       </View>
 
-      <WebView originWhitelist={["*"]} source={{ html }} />
+      <WebView
+        originWhitelist={["*"]}
+        source={{ html }}
+        style={{ flex: 1, backgroundColor: "transparent" }}
+      />
     </SafeAreaView>
   );
 }
@@ -226,9 +275,15 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: {
     height: 52,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+  },
+  backBtn: {
+    width: 44,
+    height: 36,
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerTitle: {
     flex: 1,
