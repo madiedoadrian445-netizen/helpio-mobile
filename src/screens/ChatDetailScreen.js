@@ -26,6 +26,10 @@ import PhoneBlurIcon from "../../assets/images/phone_blur.png";
 import SaveBlurIcon from "../../assets/images/save_blur.png";
 import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../config/api";
+import useAuthStore from "../store/auth";
+
+
+
 
 
 
@@ -72,6 +76,11 @@ const formatTime = (ts) => {
 };
 
 export default function ChatDetailScreen({ route, navigation }) {
+useEffect(() => {
+    const token = useAuthStore.getState().token;
+    console.log("🔑 AUTH TOKEN:", token);
+  }, []);
+
   const { name } = route.params || {};
   const displayName = name || "Chat";
   const company = route?.params?.companyName || route?.params?.name || "";
@@ -192,32 +201,27 @@ const mapMessageFromApi = useCallback((m) => ({
   }, []);
 
 const openConversation = useCallback(async () => {
-  // ✅ If we already have one, use it
   if (conversationId) return conversationId;
 
-  // ⚠️ Only block if we truly cannot create one
   if (!customerId) {
-    console.warn("⚠️ openConversation: missing customerId");
+    Alert.alert("Chat error", "Missing customer information.");
     return null;
   }
 
-  const res = await api.post(`/api/conversations/with-customer/${customerId}`);
+  const res = await api.post(
+    `/api/conversations/with-customer/${customerId}`
+  );
 
-  // 🔑 Be flexible with backend response shape
-  const cid =
-    res.data?.conversation?._id ||
-    res.data?.conversationId ||
-    res.data?._id ||
-    null;
-
+  const cid = res.data?.conversation?._id;
   if (cid) {
     setConversationId(cid);
     return cid;
   }
 
-  console.warn("⚠️ openConversation: no conversation id returned", res.data);
+  Alert.alert("Chat error", "Unable to start conversation.");
   return null;
 }, [conversationId, customerId]);
+
 
 const loadLatestMessages = useCallback(async (cid) => {
   try {
@@ -249,6 +253,14 @@ useEffect(() => {
 
   (async () => {
     try {
+      // ✅ CASE 1: We already have a conversation
+      if (conversationId) {
+        await loadLatestMessages(conversationId);
+        await markRead(conversationId);
+        return;
+      }
+
+      // ✅ CASE 2: We need to create one (requires customerId)
       const cid = await openConversation();
       if (!cid || !alive) return;
 
@@ -258,6 +270,7 @@ useEffect(() => {
       console.log("❌ Chat open/load error:", err);
     }
   })();
+
 
   return () => {
     alive = false;
@@ -272,31 +285,6 @@ useFocusEffect(
     }
   }, [conversationId, markRead])
 );
-
-useEffect(() => {
-  if (customerId || !conversationId) return;
-
-  let mounted = true;
-
-  (async () => {
-    try {
-      const res = await api.get(
-        `/api/conversations/${conversationId}/meta`
-      );
-
-      const cid = res.data?.customerId;
-      if (cid && mounted) {
-        setCustomerId(cid);
-      }
-    } catch (err) {
-      console.log("❌ Failed to load conversation meta", err);
-    }
-  })();
-
-  return () => {
-    mounted = false;
-  };
-}, [conversationId, customerId]);
 
 
 

@@ -63,18 +63,25 @@ export default function MessagesScreen() {
 
     const conversations = res.data?.conversations || [];
 
-    const mapped = conversations.map((c) => ({
-      id: c._id,
-      customerId: c.customer?._id,
-      name: c.customer?.name || "Unknown",
-      avatar: c.customer?.avatar || null,
-      lastMsg: c.lastMessage?.text || "No messages yet",
-      time: new Date(c.updatedAt).toLocaleTimeString([], {
-        hour: "numeric",
-        minute: "2-digit",
-      }),
-      unread: c.unreadCount > 0,
-    }));
+   const mapped = conversations.map((c) => ({
+  _id: c._id,
+  customerId: c.customerId,
+
+  // TEMP safe values (until we populate customer)
+  name: "Customer",
+  avatar: null,
+  phone: null,
+
+  lastMsg: c.lastMessageText || "",
+  unread: c.unread,
+
+  time: new Date(c.updatedAt).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  }),
+}));
+
+
 
     setMessages(mapped);
   } catch (err) {
@@ -94,9 +101,13 @@ export default function MessagesScreen() {
     fetchMessages();
   };
 
-  const filteredMessages = messages.filter((m) =>
-  m.name.toLowerCase().includes(search.toLowerCase())
+  const filteredMessages = messages.filter(m =>
+  (m.name || "")
+    .toLowerCase()
+    .includes(search.toLowerCase())
 );
+
+
 
 
   /* ---------------- UI ---------------- */
@@ -191,23 +202,21 @@ export default function MessagesScreen() {
           <View style={{ marginTop: 20 }}>
             {filteredMessages.map((msg) => (
               <TouchableOpacity
-                key={msg.id}
-                activeOpacity={0.65}
-                style={[
-                  styles.messageRow,
-                  { backgroundColor: theme.card },
-                ]}
-                onPress={() =>
-                navigation.navigate("ChatDetail", {
-  conversationId: msg.id,   // ← THIS IS CRITICAL
-  customerId: msg.customerId,
-  name: msg.name,
-  avatar: msg.avatar,
-})
+  key={msg._id}
+  activeOpacity={0.65}
+  style={[styles.messageRow, { backgroundColor: theme.card }]}
+  onPress={() =>
+  navigation.navigate("ChatDetail", {
+    conversationId: msg._id,
+    customerId: msg.customerId,
+    name: msg.name || "Customer",
+    avatar: msg.avatar || null,
+    phoneNumber: msg.phone || null,
+  })
+}
 
+>
 
-                }
-              >
                 <Image
   source={{ uri: msg.avatar || "https://ui-avatars.com/api/?name=User&background=0A6CFF&color=fff" }}
   style={styles.avatar}
@@ -225,7 +234,7 @@ export default function MessagesScreen() {
                       },
                     ]}
                   >
-                    {msg.name}
+                    {msg.name || "Customer"}
                   </Text>
 
                   <Text

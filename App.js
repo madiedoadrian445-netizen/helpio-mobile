@@ -57,6 +57,8 @@ import CreateSubscriptionPlanScreen from "./src/screens/CreateSubscriptionPlanSc
 import SubscriptionPlanDetailScreen from "./src/screens/SubscriptionPlanDetailScreen";
 import ProviderOnboardingScreen from "./src/screens/ProviderOnboardingScreen";
 import WebhookEventsScreen from "./src/screens/WebhookEventsScreen";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 
 
 const Tab = createBottomTabNavigator();
@@ -346,6 +348,12 @@ function RootNavigator() {
   );
 }
 export default function App() {
+  useEffect(() => {
+  AsyncStorage.getItem("authToken").then(token => {
+    console.log("🔐 JWT:", token);
+  });
+}, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>

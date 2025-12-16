@@ -9,6 +9,7 @@ import {
   ScrollView,
   Platform,
   Linking,
+  Alert,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -59,25 +60,6 @@ export default function ClientProfileScreen({ route, navigation }) {
     Linking.openURL(`tel:${finalNumber}`).catch(() => {});
   };
 
-  const handleText = () => {
-    navigation.navigate("ChatDetail", {
-      client,
-      fromClientProfile: true,
-    });
-  };
-
-  const handleEmail = () => {
-    if (!email) return;
-    Linking.openURL(`mailto:${email}`).catch(() => {});
-  };
-
-  const handleInvoice = () => {
-    navigation.navigate("InvoiceBuilderScreen", {
-      client,
-      fromClientProfile: true,
-    });
-  };
-
 const customerId = (() => {
   if (typeof client?._id === "string") return client._id;
   if (typeof client?.customerId === "string") return client.customerId;
@@ -104,6 +86,34 @@ console.log(
   customerId,
   typeof customerId
 );
+
+
+  const handleText = () => {
+  if (!customerId) {
+    Alert.alert("Chat error", "Missing customer information.");
+    return;
+  }
+
+  navigation.navigate("ChatDetail", {
+    customerId,              // 🔥 REQUIRED
+    name: client.name,       // for header
+    phoneNumber: phone,      // for call button
+    avatar: null,            // optional
+    fromClientProfile: true,
+  });
+};
+
+  const handleEmail = () => {
+    if (!email) return;
+    Linking.openURL(`mailto:${email}`).catch(() => {});
+  };
+
+  const handleInvoice = () => {
+    navigation.navigate("InvoiceBuilderScreen", {
+      client,
+      fromClientProfile: true,
+    });
+  };
 
 
   const callDisabled = !cleaned || cleaned.length !== 10;
