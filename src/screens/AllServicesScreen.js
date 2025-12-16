@@ -15,12 +15,15 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Platform,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import HeroHeader from "../components/HeroHeader";
 import { useTheme } from "../ThemeContext";
 import { api } from "../config/api";
+import useAuthStore from "../store/auth";
+
 
 const HELP_IO_BLUE = "#00A6FF";
 
@@ -61,7 +64,9 @@ export default function AllServicesScreen({ navigation }) {
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [sortOrder, setSortOrder] = useState(null);
+  const user = useAuthStore((state) => state.user);
 
+ 
   /* ============================================================
       FETCH LISTINGS FROM BACKEND
   ============================================================ */
@@ -286,9 +291,15 @@ export default function AllServicesScreen({ navigation }) {
                       shadowOpacity: darkMode ? 0 : 0.08,
                     },
                   ]}
-                  onPress={() =>
-                    navigation.navigate("ServiceDetailScreen", { service })
-                  }
+                 onPress={() =>
+  navigation.navigate("ServiceDetailScreen", {
+    service,
+    viewer: {
+      _id: user?._id,   // ✅ customerId flows correctly now
+    },
+  })
+}
+
                 >
                   {/* IMAGE */}
                   {service.photos?.length > 0 ? (

@@ -12,11 +12,15 @@ import {
   Animated,
   Platform,
   StatusBar,
+  Alert,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import ImageViewing from "react-native-image-viewing";
 import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import useAuthStore from "../store/auth";
+
+
 
 const { width } = Dimensions.get("window");
 const PADDING_H = 16;
@@ -24,6 +28,33 @@ const HELPIO_BLUE = "#00A6FF";
 
 export default function ServiceDetailScreen({ route, navigation }) {
   const { service } = route.params;
+
+  const authUser = useAuthStore((state) => state.user);
+
+console.log("🧭 ServiceDetail route params:", route?.params);
+
+const customerId = (() => {
+  const viewer = route?.params?.customer || route?.params?.viewer;
+
+  if (typeof viewer?._id === "string") return viewer._id;
+  if (typeof viewer?.customerId === "string") return viewer.customerId;
+  if (typeof viewer?.id === "string") return viewer.id;
+
+  if (viewer?._id && viewer._id.toString) return viewer._id.toString();
+
+ // 🔥 FALLBACK TO LOGGED-IN USER (Zustand auth)
+if (typeof authUser?.id === "string") return authUser.id;
+if (authUser?.id?.toString) return authUser.id.toString();
+
+
+  return null;
+})();
+
+console.log("👤 authUser:", authUser);
+console.log("🧾 resolved customerId:", customerId);
+
+
+console.log("🧾 ServiceDetail customerId:", customerId);
 
   const rating = service.rating ?? 5;
   const ratingCount = service.ratingCount ?? 0;
@@ -35,6 +66,7 @@ export default function ServiceDetailScreen({ route, navigation }) {
   const startingPrice = service.price;
   const heroSrc = service.photos?.[0];
   const gallerySrc = service.photos || [];
+
 
   // Lightbox state
   const [visible, setVisible] = React.useState(false);
@@ -207,13 +239,21 @@ export default function ServiceDetailScreen({ route, navigation }) {
         <BlurView intensity={40} tint="light" style={styles.ctaBlur}>
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={() =>
-              navigation.navigate("ChatDetail", {
-                companyName,
-                companyId: route?.params?.companyId,
-                companyAvatar: route?.params?.companyAvatar,
-              })
-            }
+           onPress={() => {
+  if (!customerId) {
+    Alert.alert("Chat error", "Missing customer information.");
+    return;
+  }
+
+  navigation.navigate("ChatDetail", {
+    customerId,                    // 🔥 REQUIRED
+    name: companyName,             // header name
+    phoneNumber: service.phone || null,
+    avatar: service.logo || heroSrc || null,
+    fromServiceDetail: true,
+  });
+}}
+
             style={styles.ctaBtn}
           >
             <Text style={styles.ctaText}>Message {companyName}</Text>
