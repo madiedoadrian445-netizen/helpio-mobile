@@ -63,16 +63,27 @@ export default function MessagesScreen() {
 
     const conversations = res.data?.conversations || [];
 
-  const mapped = conversations.map((c) => {
+ const mapped = conversations.map((c) => {
   const hasMessage = !!c.lastMessageText;
+  const isServiceChat = !!c.serviceId;
 
   return {
     _id: c._id,
     customerId: c.customerId,
+    serviceId: c.serviceId,
 
-    name: c.customer?.name || "Customer",
-    avatar: c.customer?.avatar || null,
-    phone: c.customer?.phone || null,
+    // 🔥 PRIORITY: service > customer
+    name: isServiceChat
+      ? c.serviceTitle || "Service Inquiry"
+      : c.customer?.name || "Customer",
+
+    avatar: isServiceChat
+      ? c.serviceThumbnail || null
+      : c.customer?.avatar || null,
+
+    phone: isServiceChat
+      ? null
+      : c.customer?.phone || null,
 
     lastMsg: hasMessage ? c.lastMessageText : "Start of conversation",
     unread: c.unread || false,
@@ -83,7 +94,6 @@ export default function MessagesScreen() {
     }),
   };
 });
-
 
 
 

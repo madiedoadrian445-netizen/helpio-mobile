@@ -37,19 +37,23 @@ console.log("🧭 ServiceDetail route params:", route?.params);
 const customerId = (() => {
   const viewer = route?.params?.customer || route?.params?.viewer;
 
+  // ✅ explicit customer passed in
   if (typeof viewer?._id === "string") return viewer._id;
   if (typeof viewer?.customerId === "string") return viewer.customerId;
   if (typeof viewer?.id === "string") return viewer.id;
 
+  // ✅ if viewer is an objectId-like
   if (viewer?._id && viewer._id.toString) return viewer._id.toString();
 
- // 🔥 FALLBACK TO LOGGED-IN USER (Zustand auth)
-if (typeof authUser?.id === "string") return authUser.id;
-if (authUser?.id?.toString) return authUser.id.toString();
-
+  // ✅ ONLY allow fallback if logged-in user is a CUSTOMER
+  if (authUser?.role === "customer") {
+    if (typeof authUser?.id === "string") return authUser.id;
+    if (authUser?.id?.toString) return authUser.id.toString();
+  }
 
   return null;
 })();
+
 
 console.log("👤 authUser:", authUser);
 console.log("🧾 resolved customerId:", customerId);
@@ -240,20 +244,32 @@ console.log("🧾 ServiceDetail customerId:", customerId);
         <BlurView intensity={40} tint="light" style={styles.ctaBlur}>
           <TouchableOpacity
             activeOpacity={0.85}
-          onPress={async () => {
+         onPress={async () => {
+  // ✅ Providers should NOT use this flow (they use CRM chat)
+  if (authUser?.role === "provider") {
+    Alert.alert("Provider account", "Use CRM chat to message customers.");
+    return;
+  }
+
+  // ✅ Must have a customerId (real customer user)
   if (!customerId) {
     Alert.alert("Chat error", "Missing customer information.");
     return;
   }
 
-  try {
-   const res = await api.post(
-  `/api/conversations/with-customer/${customerId}`,
-  {
-    serviceId: service._id, // 🔥 THIS IS THE FIX
+  // ✅ Service must be a real Mongo ObjectId
+  if (!service?._id || String(service._id).length !== 24) {
+    Alert.alert("Unavailable", "Messaging is only available for live listings.");
+    return;
   }
-);
 
+  try {
+    const res = await api.post(
+      `/api/conversations/with-customer/${customerId}`,
+      {
+        serviceId: service._id, // 🔥 correct
+      }
+    );
 
     if (!res.data?.success || !res.data?.conversation?._id) {
       throw new Error("Conversation creation failed");
@@ -262,7 +278,7 @@ console.log("🧾 ServiceDetail customerId:", customerId);
     const conversation = res.data.conversation;
 
     navigation.navigate("ChatDetail", {
-      conversationId: conversation._id, // ✅ THIS links Messages screen
+      conversationId: conversation._id,
       customerId,
       name: companyName,
       phoneNumber: service.phone || null,
