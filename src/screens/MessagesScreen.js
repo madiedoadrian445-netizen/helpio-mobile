@@ -63,23 +63,27 @@ export default function MessagesScreen() {
 
     const conversations = res.data?.conversations || [];
 
-   const mapped = conversations.map((c) => ({
-  _id: c._id,
-  customerId: c.customerId,
+  const mapped = conversations.map((c) => {
+  const hasMessage = !!c.lastMessageText;
 
-  // TEMP safe values (until we populate customer)
-  name: "Customer",
-  avatar: null,
-  phone: null,
+  return {
+    _id: c._id,
+    customerId: c.customerId,
 
-  lastMsg: c.lastMessageText || "",
-  unread: c.unread,
+    name: c.customer?.name || "Customer",
+    avatar: c.customer?.avatar || null,
+    phone: c.customer?.phone || null,
 
-  time: new Date(c.updatedAt).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  }),
-}));
+    lastMsg: hasMessage ? c.lastMessageText : "Start of conversation",
+    unread: c.unread || false,
+
+    time: new Date(c.updatedAt).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    }),
+  };
+});
+
 
 
 

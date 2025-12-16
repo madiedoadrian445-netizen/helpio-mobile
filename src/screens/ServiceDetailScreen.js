@@ -19,6 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import ImageViewing from "react-native-image-viewing";
 import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
 import useAuthStore from "../store/auth";
+import { api } from "../config/api";
 
 
 
@@ -239,20 +240,41 @@ console.log("🧾 ServiceDetail customerId:", customerId);
         <BlurView intensity={40} tint="light" style={styles.ctaBlur}>
           <TouchableOpacity
             activeOpacity={0.85}
-           onPress={() => {
+          onPress={async () => {
   if (!customerId) {
     Alert.alert("Chat error", "Missing customer information.");
     return;
   }
 
-  navigation.navigate("ChatDetail", {
-    customerId,                    // 🔥 REQUIRED
-    name: companyName,             // header name
-    phoneNumber: service.phone || null,
-    avatar: service.logo || heroSrc || null,
-    fromServiceDetail: true,
-  });
+  try {
+   const res = await api.post(
+  `/api/conversations/with-customer/${customerId}`,
+  {
+    serviceId: service._id, // 🔥 THIS IS THE FIX
+  }
+);
+
+
+    if (!res.data?.success || !res.data?.conversation?._id) {
+      throw new Error("Conversation creation failed");
+    }
+
+    const conversation = res.data.conversation;
+
+    navigation.navigate("ChatDetail", {
+      conversationId: conversation._id, // ✅ THIS links Messages screen
+      customerId,
+      name: companyName,
+      phoneNumber: service.phone || null,
+      avatar: service.logo || heroSrc || null,
+      fromServiceDetail: true,
+    });
+  } catch (err) {
+    console.log("❌ Start chat error:", err.response?.data || err);
+    Alert.alert("Chat error", "Unable to start conversation.");
+  }
 }}
+
 
             style={styles.ctaBtn}
           >
