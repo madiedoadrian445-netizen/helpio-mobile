@@ -198,11 +198,13 @@ export default function MessagesScreen() {
                   { backgroundColor: theme.card },
                 ]}
                 onPress={() =>
-                 navigation.navigate("ChatDetail", {
+                navigation.navigate("ChatDetail", {
+  conversationId: msg.id,   // ← THIS IS CRITICAL
   customerId: msg.customerId,
   name: msg.name,
   avatar: msg.avatar,
 })
+
 
                 }
               >

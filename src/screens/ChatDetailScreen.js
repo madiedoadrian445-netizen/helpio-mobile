@@ -78,8 +78,10 @@ export default function ChatDetailScreen({ route, navigation }) {
   const phoneNumber = route?.params?.phoneNumber || route?.params?.phone || "";
 const customerId =
   route?.params?.customerId || route?.params?.customer?._id || null;
+const initialConversationId = route?.params?.conversationId || null;
 
-const [conversationId, setConversationId] = useState(null);
+
+const [conversationId, setConversationId] = useState(initialConversationId);
 const [nextCursor, setNextCursor] = useState(null);
 const [loadingHistory, setLoadingHistory] = useState(true);
 const [sending, setSending] = useState(false);
@@ -104,7 +106,7 @@ const [sending, setSending] = useState(false);
 
   const [data, setData] = useState([]);
 
-const mapMessageFromApi = (m) => ({
+const mapMessageFromApi = useCallback((m) => ({
   id: m._id,
   sender: m.senderRole === "provider" ? "me" : "them",
   text: m.text || null,
@@ -112,7 +114,8 @@ const mapMessageFromApi = (m) => ({
   at: new Date(m.createdAt).getTime(),
   deliveredAt: m.deliveredAt,
   readAt: m.readAt,
-});
+}), []);
+
 
   /* ----------------- Keyboard Animation ----------------- */
   useEffect(() => {
@@ -186,29 +189,48 @@ const mapMessageFromApi = (m) => ({
   }, []);
 
 const openConversation = useCallback(async () => {
-  if (!customerId) return null;
+  // ✅ If we already have one, use it
+  if (conversationId) return conversationId;
+
+  // ⚠️ Only block if we truly cannot create one
+  if (!customerId) {
+    console.warn("⚠️ openConversation: missing customerId");
+    return null;
+  }
 
   const res = await api.post(`/api/conversations/with-customer/${customerId}`);
-  const cid = res.data?.conversation?._id || null;
 
-  if (cid) setConversationId(cid);
-  return cid;
-}, [customerId]);
+  // 🔑 Be flexible with backend response shape
+  const cid =
+    res.data?.conversation?._id ||
+    res.data?.conversationId ||
+    res.data?._id ||
+    null;
+
+  if (cid) {
+    setConversationId(cid);
+    return cid;
+  }
+
+  console.warn("⚠️ openConversation: no conversation id returned", res.data);
+  return null;
+}, [conversationId, customerId]);
 
 const loadLatestMessages = useCallback(async (cid) => {
   try {
     setLoadingHistory(true);
     const res = await api.get(`/api/conversations/${cid}/messages?limit=40`);
     const msgs = res.data?.messages || [];
+
     setData(msgs.map(mapMessageFromApi));
     setNextCursor(res.data?.nextCursor || null);
 
-    // unlock call icon if there are any messages in chat (optional)
     if (msgs.length > 0) setHasSentMessage(true);
   } finally {
     setLoadingHistory(false);
   }
-}, []);
+}, [mapMessageFromApi]);
+
 
 const markRead = useCallback(async (cid) => {
   try {
@@ -248,16 +270,26 @@ useFocusEffect(
   }, [conversationId, markRead])
 );
 
-  /* ----------------- Send Message ----------------- */
- const send = useCallback(async () => {
+/* ----------------- Send Message ----------------- */
+const send = useCallback(async () => {
   const txt = message.trim();
   if (!txt) return;
-  if (!conversationId) return;
+
   if (sending) return;
+
+  let cid = conversationId;
+
+  // ✅ Create/open conversation on demand
+  if (!cid) {
+    cid = await openConversation();
+    if (!cid) {
+      Alert.alert("Chat loading", "Please try again in a moment.");
+      return;
+    }
+  }
 
   const tempId = `tmp_${Date.now()}`;
 
-  // iMessage-style optimistic UI
   const optimistic = {
     id: tempId,
     sender: "me",
@@ -277,17 +309,11 @@ useFocusEffect(
   scrollToBottom();
 
   try {
-    const res = await api.post(
-      `/api/conversations/${conversationId}/messages`,
-      { text: txt }
-    );
+    const res = await api.post(`/api/conversations/${cid}/messages`, { text: txt });
 
     const real = res.data?.message;
-
     if (real?._id) {
-      setData((p) =>
-        p.map((m) => (m.id === tempId ? mapMessageFromApi(real) : m))
-      );
+      setData((p) => p.map((m) => (m.id === tempId ? mapMessageFromApi(real) : m)));
     }
   } catch (err) {
     console.log("❌ Send message error:", err?.response?.data || err);
@@ -302,7 +328,10 @@ useFocusEffect(
   sending,
   hasSentMessage,
   scrollToBottom,
+  mapMessageFromApi,
+  openConversation, // ✅ IMPORTANT
 ]);
+
 
   /* ----------------- Camera & Library ----------------- */
   const openCamera = async () => {
