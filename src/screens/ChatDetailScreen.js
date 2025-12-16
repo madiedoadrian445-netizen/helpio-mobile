@@ -76,9 +76,12 @@ export default function ChatDetailScreen({ route, navigation }) {
   const displayName = name || "Chat";
   const company = route?.params?.companyName || route?.params?.name || "";
   const phoneNumber = route?.params?.phoneNumber || route?.params?.phone || "";
-const customerId =
-  route?.params?.customerId || route?.params?.customer?._id || null;
+const [customerId, setCustomerId] = useState(
+  route?.params?.customerId || route?.params?.customer?._id || null
+);
+
 const initialConversationId = route?.params?.conversationId || null;
+
 
 
 const [conversationId, setConversationId] = useState(initialConversationId);
@@ -269,6 +272,33 @@ useFocusEffect(
     }
   }, [conversationId, markRead])
 );
+
+useEffect(() => {
+  if (customerId || !conversationId) return;
+
+  let mounted = true;
+
+  (async () => {
+    try {
+      const res = await api.get(
+        `/api/conversations/${conversationId}/meta`
+      );
+
+      const cid = res.data?.customerId;
+      if (cid && mounted) {
+        setCustomerId(cid);
+      }
+    } catch (err) {
+      console.log("❌ Failed to load conversation meta", err);
+    }
+  })();
+
+  return () => {
+    mounted = false;
+  };
+}, [conversationId, customerId]);
+
+
 
 /* ----------------- Send Message ----------------- */
 const send = useCallback(async () => {
