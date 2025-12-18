@@ -32,34 +32,11 @@ export default function ServiceDetailScreen({ route, navigation }) {
 
   const authUser = useAuthStore((state) => state.user);
 
-console.log("🧭 ServiceDetail route params:", route?.params);
+  const DEV_LOGS = __DEV__ && false;
 
-const customerId = (() => {
-  const viewer = route?.params?.customer || route?.params?.viewer;
-
-  // ✅ explicit customer passed in
-  if (typeof viewer?._id === "string") return viewer._id;
-  if (typeof viewer?.customerId === "string") return viewer.customerId;
-  if (typeof viewer?.id === "string") return viewer.id;
-
-  // ✅ if viewer is an objectId-like
-  if (viewer?._id && viewer._id.toString) return viewer._id.toString();
-
-  // ✅ ONLY allow fallback if logged-in user is a CUSTOMER
-  if (authUser?.role === "customer") {
-    if (typeof authUser?.id === "string") return authUser.id;
-    if (authUser?.id?.toString) return authUser.id.toString();
-  }
-
-  return null;
-})();
+if (DEV_LOGS) console.log("🧭 ServiceDetail route params:", route?.params);
 
 
-console.log("👤 authUser:", authUser);
-console.log("🧾 resolved customerId:", customerId);
-
-
-console.log("🧾 ServiceDetail customerId:", customerId);
 
   const rating = service.rating ?? 5;
   const ratingCount = service.ratingCount ?? 0;
@@ -71,6 +48,24 @@ console.log("🧾 ServiceDetail customerId:", customerId);
   const startingPrice = service.price;
   const heroSrc = service.photos?.[0];
   const gallerySrc = service.photos || [];
+
+  const isValidObjectId = (id) =>
+  typeof id === "string" &&
+  /^[0-9a-fA-F]{24}$/.test(id);
+
+
+
+
+const isOwnListing =
+  authUser?.providerId &&
+  (service?.providerId || service?.provider?._id) &&
+  String(service?.providerId || service?.provider?._id) ===
+    String(authUser.providerId);
+
+const canChat =
+  !!authUser &&
+  !isOwnListing &&
+  !!service?._id;
 
 
   // Lightbox state
@@ -239,65 +234,81 @@ console.log("🧾 ServiceDetail customerId:", customerId);
         </View>
       </Animated.ScrollView>
 
-      {/* ===== CTA BUTTON ===== */}
-      <Animated.View style={[styles.ctaWrap, { transform: [{ scale: pulse }] }]}>
-        <BlurView intensity={40} tint="light" style={styles.ctaBlur}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-         onPress={async () => {
-  // ✅ Providers should NOT use this flow (they use CRM chat)
-  if (authUser?.role === "provider") {
-    Alert.alert("Provider account", "Use CRM chat to message customers.");
-    return;
-  }
 
-  // ✅ Must have a customerId (real customer user)
-  if (!customerId) {
-    Alert.alert("Chat error", "Missing customer information.");
-    return;
-  }
 
-  // ✅ Service must be a real Mongo ObjectId
-  if (!service?._id || String(service._id).length !== 24) {
+           {/* ===== CTA BUTTON ===== */}
+{authUser && !isOwnListing && isValidObjectId(service?._id) ? (
+  
+  <Animated.View style={[styles.ctaWrap, { transform: [{ scale: pulse }] }]}>
+    <BlurView intensity={40} tint="light" style={styles.ctaBlur}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        style={styles.ctaBtn}
+        onPress={async () => {
+  if (!service?._id || !isValidObjectId(service._id)) {
     Alert.alert("Unavailable", "Messaging is only available for live listings.");
     return;
   }
 
+  if (isOwnListing) {
+    Alert.alert("Unavailable", "You can’t message your own listing.");
+    return;
+  }
+
+  // ✅ normalize providerId from listing
+  const providerId =
+    typeof service?.provider === "string"
+      ? service.provider
+      : service?.provider?._id;
+
+  if (!providerId || !isValidObjectId(providerId)) {
+    console.log("❌ Missing/invalid providerId on service:", service);
+    Alert.alert("Chat error", "This listing is missing a provider.");
+    return;
+  }
+
   try {
+    // ✅ MUST capture res
     const res = await api.post(
-      `/api/conversations/with-customer/${customerId}`,
-      {
-        serviceId: service._id, // 🔥 correct
-      }
+      `/api/conversations/with-service/${providerId}`,
+      { serviceId: service._id }
     );
 
     if (!res.data?.success || !res.data?.conversation?._id) {
+      console.log("❌ Conversation creation failed:", res.data);
       throw new Error("Conversation creation failed");
     }
 
     const conversation = res.data.conversation;
 
-    navigation.navigate("ChatDetail", {
-      conversationId: conversation._id,
-      customerId,
-      name: companyName,
-      phoneNumber: service.phone || null,
-      avatar: service.logo || heroSrc || null,
-      fromServiceDetail: true,
-    });
+   navigation.navigate("ChatDetail", {
+  conversationId: conversation._id,
+
+  // 🔥 REQUIRED FOR RECOVERY + CREATION
+  providerId,
+  serviceId: service._id,
+
+  // UI
+  name: companyName,
+  avatar: service.logo || heroSrc || null,
+  phoneNumber: service.phone || service.provider?.phone || null,
+});
+
   } catch (err) {
     console.log("❌ Start chat error:", err.response?.data || err);
-    Alert.alert("Chat error", "Unable to start conversation.");
+    Alert.alert("Chat error", err.response?.data?.message || "Unable to start conversation.");
   }
 }}
 
+      >
+        <Text style={styles.ctaText}>Message {companyName}</Text>
+      </TouchableOpacity>
+    </BlurView>
+  </Animated.View>
 
-            style={styles.ctaBtn}
-          >
-            <Text style={styles.ctaText}>Message {companyName}</Text>
-          </TouchableOpacity>
-        </BlurView>
-      </Animated.View>
+  
+) : null}
+
 
       {/* ===== LIGHTBOX ===== */}
       <ImageViewing

@@ -76,6 +76,10 @@ const formatTime = (ts) => {
 };
 
 export default function ChatDetailScreen({ route, navigation }) {
+const providerId = route?.params?.providerId || null;
+const serviceId = route?.params?.serviceId || null;
+
+
 useEffect(() => {
     const token = useAuthStore.getState().token;
     console.log("🔑 AUTH TOKEN:", token);
@@ -85,9 +89,8 @@ useEffect(() => {
   const displayName = name || "Chat";
   const company = route?.params?.companyName || route?.params?.name || "";
   const phoneNumber = route?.params?.phoneNumber || route?.params?.phone || "";
-const [customerId, setCustomerId] = useState(
-  route?.params?.customerId || route?.params?.customer?._id || null
-);
+
+
 
 const initialConversationId = route?.params?.conversationId || null;
 
@@ -118,15 +121,24 @@ const [sending, setSending] = useState(false);
 
   const [data, setData] = useState([]);
 
-const mapMessageFromApi = useCallback((m) => ({
-  id: m._id,
-  sender: m.senderRole === "provider" ? "me" : "them",
-  text: m.text || null,
-  images: m.imageUrls?.length ? m.imageUrls : null,
-  at: new Date(m.createdAt).getTime(),
-  deliveredAt: m.deliveredAt,
-  readAt: m.readAt,
-}), []);
+const mapMessageFromApi = useCallback((m) => {
+  const auth = useAuthStore.getState();
+  const isProvider = !!auth.user?.providerId;
+
+  return {
+    id: m._id,
+    sender:
+      (isProvider && m.senderRole === "provider") ||
+      (!isProvider && m.senderRole === "customer")
+        ? "me"
+        : "them",
+    text: m.text || null,
+    images: m.imageUrls?.length ? m.imageUrls : null,
+    at: new Date(m.createdAt).getTime(),
+    deliveredAt: m.deliveredAt,
+    readAt: m.readAt,
+  };
+}, []);
 
 
   /* ----------------- Keyboard Animation ----------------- */
@@ -203,16 +215,18 @@ const mapMessageFromApi = useCallback((m) => ({
 const openConversation = useCallback(async () => {
   if (conversationId) return conversationId;
 
-  if (!customerId) {
-    Alert.alert("Chat error", "Missing customer information.");
+  if (!providerId || !serviceId) {
+    Alert.alert("Chat error", "Missing service information.");
     return null;
   }
 
   const res = await api.post(
-    `/api/conversations/with-customer/${customerId}`
+    `/api/conversations/with-service/${providerId}`,
+    { serviceId }
   );
 
   const cid = res.data?.conversation?._id;
+
   if (cid) {
     setConversationId(cid);
     return cid;
@@ -220,13 +234,15 @@ const openConversation = useCallback(async () => {
 
   Alert.alert("Chat error", "Unable to start conversation.");
   return null;
-}, [conversationId, customerId]);
+}, [conversationId, providerId, serviceId]);
+
+
 
 
 const loadLatestMessages = useCallback(async (cid) => {
   try {
     setLoadingHistory(true);
-    const res = await api.get(`/api/conversations/${cid}/messages?limit=40`);
+   const res = await api.get(`/api/messages/${cid}?limit=40`);
     const msgs = res.data?.messages || [];
 
     setData(msgs.map(mapMessageFromApi));
@@ -241,11 +257,12 @@ const loadLatestMessages = useCallback(async (cid) => {
 
 const markRead = useCallback(async (cid) => {
   try {
-    await api.post(`/api/conversations/${cid}/read`);
+    await api.post(`/api/messages/${cid}/read`);
   } catch (e) {
     // silent
   }
 }, []);
+
 
 
 useEffect(() => {
@@ -260,7 +277,7 @@ useEffect(() => {
         return;
       }
 
-      // ✅ CASE 2: We need to create one (requires customerId)
+      // ✅ CASE 2: We need to create one (requires providerId + serviceId)
       const cid = await openConversation();
       if (!cid || !alive) return;
 
@@ -327,7 +344,7 @@ const send = useCallback(async () => {
   scrollToBottom();
 
   try {
-    const res = await api.post(`/api/conversations/${cid}/messages`, { text: txt });
+   const res = await api.post(`/api/messages/${cid}`, { text: txt });
 
     const real = res.data?.message;
     if (real?._id) {
