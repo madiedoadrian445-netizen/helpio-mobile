@@ -76,8 +76,34 @@ const formatTime = (ts) => {
 };
 
 export default function ChatDetailScreen({ route, navigation }) {
+
+const authUser = useAuthStore((s) => s.user);
+
+const myRole = useMemo(
+  () => (authUser?.providerId ? "provider" : "customer"),
+  [authUser?.providerId]
+);
+
+// 🔒 Normalize current user IDs ONCE (prevents left/right flip)
+const myProviderId = useMemo(() => {
+  if (!authUser?.providerId) return null;
+  return String(
+    typeof authUser.providerId === "object"
+      ? authUser.providerId._id
+      : authUser.providerId
+  );
+}, [authUser?.providerId]);
+
+const myCustomerId = useMemo(() => {
+  return authUser?._id ? String(authUser._id) : null;
+}, [authUser?._id]);
+
+
+
 const providerId = route?.params?.providerId || null;
 const serviceId = route?.params?.serviceId || null;
+const isCRM = route?.params?.fromClientProfile === true;
+const recipientId = route?.params?.recipientId || null;
 
 
 useEffect(() => {
@@ -122,23 +148,58 @@ const [sending, setSending] = useState(false);
   const [data, setData] = useState([]);
 
 const mapMessageFromApi = useCallback((m) => {
-  const auth = useAuthStore.getState();
-  const isProvider = !!auth.user?.providerId;
+  const providerId =
+    m.providerId
+      ? String(typeof m.providerId === "object" ? m.providerId._id : m.providerId)
+      : m.provider?._id
+      ? String(m.provider._id)
+      : null;
 
-  return {
-    id: m._id,
-    sender:
-      (isProvider && m.senderRole === "provider") ||
-      (!isProvider && m.senderRole === "customer")
-        ? "me"
-        : "them",
-    text: m.text || null,
-    images: m.imageUrls?.length ? m.imageUrls : null,
-    at: new Date(m.createdAt).getTime(),
-    deliveredAt: m.deliveredAt,
-    readAt: m.readAt,
-  };
-}, []);
+  const customerId =
+    m.customerId
+      ? String(typeof m.customerId === "object" ? m.customerId._id : m.customerId)
+      : m.customer?._id
+      ? String(m.customer._id)
+      : null;
+
+
+
+  const isMineByRole =
+  (m.senderRole === "provider" && myProviderId) ||
+  (m.senderRole === "customer" && myCustomerId);
+
+return {
+  id: String(m._id),
+
+  // 🔒 HARD LOCK OWNERSHIP
+  providerId:
+    providerId ??
+    (isMineByRole && myProviderId ? myProviderId : null),
+
+  customerId:
+    customerId ??
+    (isMineByRole && myCustomerId ? myCustomerId : null),
+
+  senderRole: m.senderRole,
+  text: m.text || null,
+  images: m.imageUrls?.length ? m.imageUrls : null,
+  at: new Date(m.createdAt).getTime(),
+  deliveredAt: m.deliveredAt,
+  readAt: m.readAt,
+};
+
+}, [myProviderId, myCustomerId]);
+
+
+const normalizeProviderId = (p) => {
+  if (!p) return null;
+  return String(typeof p === "object" ? p._id : p);
+};
+
+const normalizeCustomerId = (c) => {
+  if (!c) return null;
+  return String(typeof c === "object" ? c._id : c);
+};
 
 
   /* ----------------- Keyboard Animation ----------------- */
@@ -270,14 +331,16 @@ useEffect(() => {
 
   (async () => {
     try {
-      // ✅ CASE 1: We already have a conversation
       if (conversationId) {
         await loadLatestMessages(conversationId);
         await markRead(conversationId);
         return;
       }
 
-      // ✅ CASE 2: We need to create one (requires providerId + serviceId)
+      // 🚫 CRM must NEVER auto-create conversations
+      if (isCRM) return;
+
+      // Marketplace only
       const cid = await openConversation();
       if (!cid || !alive) return;
 
@@ -288,11 +351,10 @@ useEffect(() => {
     }
   })();
 
-
   return () => {
     alive = false;
   };
-}, [openConversation, loadLatestMessages, markRead]);
+}, [conversationId, isCRM, openConversation, loadLatestMessages, markRead]);
 
 
 useFocusEffect(
@@ -314,23 +376,39 @@ const send = useCallback(async () => {
 
   let cid = conversationId;
 
-  // ✅ Create/open conversation on demand
-  if (!cid) {
-    cid = await openConversation();
-    if (!cid) {
-      Alert.alert("Chat loading", "Please try again in a moment.");
-      return;
-    }
+if (!cid) {
+  if (isCRM) {
+    Alert.alert("Chat error", "Conversation not ready yet.");
+    return;
   }
+
+  cid = await openConversation();
+  if (!cid) {
+    Alert.alert("Chat loading", "Please try again in a moment.");
+    return;
+  }
+}
+
 
   const tempId = `tmp_${Date.now()}`;
 
-  const optimistic = {
-    id: tempId,
-    sender: "me",
-    text: txt,
-    at: Date.now(),
-  };
+ const auth = useAuthStore.getState();
+
+const optimistic = {
+  id: tempId,
+
+  providerId: normalizeProviderId(auth.user?.providerId),
+  customerId: auth.user?.providerId
+    ? null
+    : normalizeCustomerId(auth.user?._id),
+
+  senderRole: myRole, // fallback only
+  text: txt,
+  images: null,
+  at: Date.now(),
+  deliveredAt: new Date(),
+  readAt: null,
+};
 
   setData((p) => [...p, optimistic]);
   setMessage("");
@@ -344,12 +422,26 @@ const send = useCallback(async () => {
   scrollToBottom();
 
   try {
-   const res = await api.post(`/api/messages/${cid}`, { text: txt });
+   const payload = { text: txt };
+
+if (isCRM && recipientId) {
+  payload.recipientId = recipientId;
+  payload.providerId = myProviderId; // ✅ REQUIRED
+}
+
+
+const res = await api.post(`/api/messages/${cid}`, payload);
 
     const real = res.data?.message;
-    if (real?._id) {
-      setData((p) => p.map((m) => (m.id === tempId ? mapMessageFromApi(real) : m)));
-    }
+
+setData((p) =>
+  p.map((m) =>
+    m.id === tempId
+      ? mapMessageFromApi(real)
+      : m
+  )
+);
+
   } catch (err) {
     console.log("❌ Send message error:", err?.response?.data || err);
     setData((p) => p.filter((m) => m.id !== tempId));
@@ -365,6 +457,8 @@ const send = useCallback(async () => {
   scrollToBottom,
   mapMessageFromApi,
   openConversation, // ✅ IMPORTANT
+  isCRM,
+  recipientId,
 ]);
 
 
@@ -376,7 +470,24 @@ const send = useCallback(async () => {
     if (!res.canceled) {
       const id = String(Date.now());
       const imgUri = res.assets[0].uri;
-      setData((p) => [...p, { id, sender: "me", images: [imgUri], at: Date.now() }]);
+   setData((p) => [
+  ...p,
+  {
+    id,
+
+    providerId: normalizeProviderId(authUser?.providerId),
+customerId: authUser?.providerId
+  ? null
+  : normalizeCustomerId(authUser?._id),
+
+    senderRole: myRole, // fallback only
+    images: [imgUri], // ✅ CAMERA = SINGLE IMAGE
+    text: null,
+    at: Date.now(),
+  },
+]);
+
+
       if (!hasSentMessage) setHasSentMessage(true);
       scrollToBottom();
     }
@@ -394,14 +505,37 @@ const send = useCallback(async () => {
     if (!res.canceled) {
       const uris = res.assets.map((a) => a.uri);
       const id = String(Date.now());
-      setData((p) => [...p, { id, sender: "me", images: uris, at: Date.now() }]);
+setData((p) => [
+  ...p,
+  {
+    id,
+
+   providerId: normalizeProviderId(authUser?.providerId),
+customerId: authUser?.providerId
+  ? null
+  : normalizeCustomerId(authUser?._id),
+
+      
+    senderRole: myRole, // fallback only
+    images: uris, // ✅ MULTIPLE IMAGES
+    text: null,
+    at: Date.now(),
+  },
+]);
+
+
+
       if (!hasSentMessage) setHasSentMessage(true);
       scrollToBottom();
     }
   };
 
   /* ----------------- Row Renderer ----------------- */
-  const lastMine = [...data].reverse().find((m) => m.sender === "me")?.id;
+  const lastMine = [...data].reverse().find((m) =>
+  myProviderId
+    ? m.providerId === myProviderId
+    : m.customerId === myCustomerId
+)?.id;
 
   const renderRow = ({ item }) => {
     if (item.type === "day") {
@@ -412,7 +546,8 @@ const send = useCallback(async () => {
       );
     }
 
-    const mine = item.sender === "me";
+   const mine = item.senderRole === myRole;
+
 
     return (
       <View style={[styles.msgWrap, { alignItems: mine ? "flex-end" : "flex-start" }]}>
