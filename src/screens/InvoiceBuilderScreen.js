@@ -5,6 +5,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable, 
   Image,
   StyleSheet,
   Alert,
@@ -52,6 +53,20 @@ function GlassCard({ children, style, tint = "light", intensity = 50 }) {
     </View>
   );
 }
+
+function TapToFocus({ inputKey, inputRefs, children, style, hitSlop }) {
+  return (
+    <Pressable
+      onPress={() => inputRefs.current?.[inputKey]?.focus?.()}
+      hitSlop={hitSlop || { top: 10, bottom: 10, left: 10, right: 10 }}
+      style={style}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+
 
 export default function InvoiceBuilderScreen({ navigation, route }) {
   const { darkMode } = useTheme();
@@ -135,8 +150,10 @@ const [invoiceDate, setInvoiceDate] = useState("Oct 30, 2025");
 const [invoiceDue, setInvoiceDue] = useState("On Receipt");
 const [status, setStatus] = useState("DUE");
 const [selectedClient, setSelectedClient] = useState(null);
-
+const [isSaving, setIsSaving] = useState(false);
+const [isSaved, setIsSaved] = useState(false);
 const [items, setItems] = useState([
+  
   { id: "1", title: "", note: "", rate: "", qty: "1" },
 ]);
 
@@ -307,16 +324,26 @@ if (!customerId) throw new Error("No client selected");
 
 
 
-  const onShare = async () => {
+ const onShare = async () => {
   try {
+    setIsSaving(true);
+
     const payload = buildInvoicePayload();
 
-    // Generate local PDF as usual
+    // ✅ Auto-save if not already saved
+    if (!isSaved) {
+      await saveInvoiceToCRM();
+      setIsSaved(true);
+    }
+
+    // ✅ Now generate/share PDF
     await generateInvoicePDF(payload);
 
   } catch (err) {
     console.error("share invoice error:", err);
     Alert.alert("Error", err.message || "Failed to share invoice");
+  } finally {
+    setIsSaving(false);
   }
 };
 
@@ -538,51 +565,82 @@ if (!customerId) throw new Error("No client selected");
                     },
                   ]}
                 >
-                  <View style={{ flex: 1, paddingRight: 8 }}>
-                    <TextInput
-                      ref={(r) => (inputRefs.current[`itemTitle${it.id}`] = r)}
-                      onFocus={() => scrollToInput(`itemTitle${it.id}`)}
-                      placeholder="Item title"
-                      placeholderTextColor={darkMode ? "#8C8C94" : "#A1A1AA"}
-                      value={it.title}
-                      onChangeText={(v) => editRow(it.id, "title", v)}
-                      style={[styles.itemTitleInput, { color: darkMode ? "#FFF" : "#111" }]}
-                    />
+                 <View style={{ flex: 1, paddingRight: 8 }}>
 
-                    <TextInput
-                      ref={(r) => (inputRefs.current[`itemNote${it.id}`] = r)}
-                      onFocus={() => scrollToInput(`itemNote${it.id}`)}
-                      placeholder="Optional description"
-                      placeholderTextColor={darkMode ? "#6F6F78" : "#B0B0B8"}
-                      value={it.note}
-                      onChangeText={(v) => editRow(it.id, "note", v)}
-                      multiline
-                      style={[styles.itemNoteInput, { color: darkMode ? "#CFCFD7" : "#555" }]}
-                    />
-                  </View>
+  {/* TITLE TAP ZONE (black box) */}
+  <TapToFocus
+    inputKey={`itemTitle${it.id}`}
+    inputRefs={inputRefs}
+    style={styles.titleTapZone}
+  >
+    <TextInput
+      ref={(r) => (inputRefs.current[`itemTitle${it.id}`] = r)}
+      onFocus={() => scrollToInput(`itemTitle${it.id}`)}
+      placeholder="Item title"
+      placeholderTextColor={darkMode ? "#8C8C94" : "#A1A1AA"}
+      value={it.title}
+      onChangeText={(v) => editRow(it.id, "title", v)}
+      style={[styles.itemTitleInput, { color: darkMode ? "#FFF" : "#111" }]}
+    />
+  </TapToFocus>
+
+  {/* DESCRIPTION TAP ZONE (blue box) */}
+  <TapToFocus
+    inputKey={`itemNote${it.id}`}
+    inputRefs={inputRefs}
+    style={styles.noteTapZone}
+  >
+    <TextInput
+      ref={(r) => (inputRefs.current[`itemNote${it.id}`] = r)}
+      onFocus={() => scrollToInput(`itemNote${it.id}`)}
+      placeholder="Optional description"
+      placeholderTextColor={darkMode ? "#6F6F78" : "#B0B0B8"}
+      value={it.note}
+      onChangeText={(v) => editRow(it.id, "note", v)}
+      multiline
+      style={[styles.itemNoteInput, { color: darkMode ? "#CFCFD7" : "#555" }]}
+    />
+  </TapToFocus>
+
+</View>
+
 
                   <View style={{ alignItems: "flex-end", gap: 6 }}>
-                    <TextInput
-                      ref={(r) => (inputRefs.current[`itemRate${it.id}`] = r)}
-                      onFocus={() => scrollToInput(`itemRate${it.id}`)}
-                      placeholder="$0.00"
-                      placeholderTextColor={darkMode ? "#8C8C94" : "#A1A1AA"}
-                      keyboardType="decimal-pad"
-                      value={it.rate}
-                      onChangeText={(v) => editRow(it.id, "rate", v)}
-                      style={[styles.itemSideInput, { color: darkMode ? "#FFF" : "#111" }]}
-                    />
+                   <TapToFocus
+  inputKey={`itemRate${it.id}`}
+  inputRefs={inputRefs}
+  style={styles.tapWrapRight}
+>
+  <TextInput
+    ref={(r) => (inputRefs.current[`itemRate${it.id}`] = r)}
+    onFocus={() => scrollToInput(`itemRate${it.id}`)}
+    placeholder="$0.00"
+    placeholderTextColor={darkMode ? "#8C8C94" : "#A1A1AA"}
+    keyboardType="decimal-pad"
+    value={it.rate}
+    onChangeText={(v) => editRow(it.id, "rate", v)}
+    style={[styles.itemSideInput, { color: darkMode ? "#FFF" : "#111" }]}
+  />
+</TapToFocus>
 
-                    <TextInput
-                      ref={(r) => (inputRefs.current[`itemQty${it.id}`] = r)}
-                      onFocus={() => scrollToInput(`itemQty${it.id}`)}
-                      placeholder="Qty"
-                      placeholderTextColor={darkMode ? "#8C8C94" : "#A1A1AA"}
-                      keyboardType="numeric"
-                      value={it.qty}
-                      onChangeText={(v) => editRow(it.id, "qty", v)}
-                      style={[styles.itemSideInput, { color: darkMode ? "#FFF" : "#111" }]}
-                    />
+
+                   <TapToFocus
+  inputKey={`itemQty${it.id}`}
+  inputRefs={inputRefs}
+  style={styles.tapWrapRight}
+>
+  <TextInput
+    ref={(r) => (inputRefs.current[`itemQty${it.id}`] = r)}
+    onFocus={() => scrollToInput(`itemQty${it.id}`)}
+    placeholder="Qty"
+    placeholderTextColor={darkMode ? "#8C8C94" : "#A1A1AA"}
+    keyboardType="numeric"
+    value={it.qty}
+    onChangeText={(v) => editRow(it.id, "qty", v)}
+    style={[styles.itemSideInput, { color: darkMode ? "#FFF" : "#111" }]}
+  />
+</TapToFocus>
+
 
                     <View
                       style={[
@@ -605,7 +663,11 @@ if (!customerId) throw new Error("No client selected");
                       </Text>
                     </View>
 
-                    <TouchableOpacity onPress={() => removeRow(it.id)}>
+                   <TouchableOpacity
+  onPress={() => removeRow(it.id)}
+  hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+>
+
                       <Ionicons
                         name="trash-outline"
                         size={18}
@@ -649,21 +711,16 @@ if (!customerId) throw new Error("No client selected");
                   SALES TAX
                 </Text>
 
-                <View
-                  style={[
-                    styles.pillMini,
-                    { backgroundColor: darkMode ? "rgba(255,255,255,0.06)" : "#F0F0F3" },
-                  ]}
-                >
-                  <TextInput
-                    ref={(r) => (inputRefs.current.taxPct = r)}
-                    onFocus={scrollToBottom}
-                    value={taxPct}
-                    onChangeText={setTaxPct}
-                    keyboardType="numeric"
-                    style={[styles.pillMiniText, { color: darkMode ? "#FFF" : "#111" }]}
-                  />
-                </View>
+               <TapToFocus inputKey="taxPct" inputRefs={inputRefs} style={styles.pillMini}>
+  <TextInput
+    ref={(r) => (inputRefs.current.taxPct = r)}
+    onFocus={scrollToBottom}
+    value={taxPct}
+    onChangeText={setTaxPct}
+    keyboardType="numeric"
+    style={[styles.pillMiniText, { color: darkMode ? "#FFF" : "#111" }]}
+  />
+</TapToFocus>
 
                 <View
                   style={[
@@ -699,23 +756,26 @@ if (!customerId) throw new Error("No client selected");
                   PAID
                 </Text>
 
-                <View
-                  style={[
-                    styles.pillEditable,
-                    { backgroundColor: darkMode ? "rgba(255,255,255,0.06)" : "#F0F0F3" },
-                  ]}
-                >
-                  <TextInput
-                    ref={(r) => (inputRefs.current.paid = r)}
-                    onFocus={scrollToBottom}
-                    value={paid}
-                    onChangeText={setPaid}
-                    keyboardType="decimal-pad"
-                    placeholder="$0.00"
-                    placeholderTextColor={darkMode ? "#8E8E93" : "#6D6D72"}
-                    style={[styles.pillEditText, { color: darkMode ? "#FFF" : "#111" }]}
-                  />
-                </View>
+                <TapToFocus
+  inputKey="paid"
+  inputRefs={inputRefs}
+  style={[
+    styles.pillEditable,
+    { backgroundColor: darkMode ? "rgba(255,255,255,0.06)" : "#F0F0F3" },
+  ]}
+>
+  <TextInput
+    ref={(r) => (inputRefs.current.paid = r)}
+    onFocus={scrollToBottom}
+    value={paid}
+    onChangeText={setPaid}
+    keyboardType="decimal-pad"
+    placeholder="$0.00"
+    placeholderTextColor={darkMode ? "#8E8E93" : "#6D6D72"}
+    style={[styles.pillEditText, { color: darkMode ? "#FFF" : "#111" }]}
+  />
+</TapToFocus>
+
               </View>
 
               <View style={styles.summaryRow}>
@@ -739,47 +799,74 @@ if (!customerId) throw new Error("No client selected");
 
           <View style={{ height: 14 }} />
 
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={[
-                styles.secondaryBtn,
-                {
-                  borderColor: darkMode ? "rgba(255,255,255,0.16)" : "#E6E6EA",
-                  backgroundColor: darkMode ? "rgba(255,255,255,0.04)" : "#FFF",
-                },
-              ]}
-              onPress={async () => {
-  try {
-    await saveInvoiceToCRM();
+        <View style={styles.actionsRow}>
 
-   navigation.navigate("MainTabs", {
-  screen: "Invoices",
-  params: {
-    refreshInvoices: Date.now(),
-  },
-});
+  {/* SAVE BUTTON */}
+  <TouchableOpacity
+    disabled={isSaving || isSaved}
+    style={[
+      styles.secondaryBtn,
+      {
+        borderColor: darkMode ? "rgba(255,255,255,0.16)" : "#E6E6EA",
+        backgroundColor: isSaved
+          ? "rgba(0,166,255,0.12)"
+          : darkMode
+          ? "rgba(255,255,255,0.04)"
+          : "#FFF",
+        opacity: isSaving ? 0.7 : 1,
+      },
+    ]}
+    onPress={async () => {
+      if (isSaved) return;
 
+      try {
+        setIsSaving(true);
+        await saveInvoiceToCRM();
+        setIsSaved(true);
+      } catch (err) {
+        Alert.alert("Error", err.message || "Failed to save invoice");
+      } finally {
+        setIsSaving(false);
+      }
+    }}
+  >
+    {isSaved ? (
+      <>
+        <Ionicons
+          name="checkmark-circle"
+          size={18}
+          color={HELP_BLUE}
+          style={{ marginRight: 6 }}
+        />
+        <Text style={[styles.secondaryTxt, { color: HELP_BLUE }]}>
+          Saved
+        </Text>
+      </>
+    ) : (
+      <Text style={[styles.secondaryTxt, { color: darkMode ? "#FFF" : "#111" }]}>
+        {isSaving ? "Saving..." : "Save"}
+      </Text>
+    )}
+  </TouchableOpacity>
 
+  {/* SHARE BUTTON */}
+  <TouchableOpacity
+  onPress={onShare}
+  disabled={isSaving}
+  style={[
+    styles.primaryBtn,
+    {
+      backgroundColor: HELP_BLUE,
+      opacity: isSaving ? 0.7 : 1,
+    },
+  ]}
+>
+    <Text style={styles.primaryTxt}>Share Invoice</Text>
+  </TouchableOpacity>
 
-    Alert.alert("Saved", "Invoice saved to invoices.");
-  } catch (err) {
-    Alert.alert("Error", err.message || "Failed to save invoice");
-  }
-}}
+</View>
 
-            >
-              <Text style={[styles.secondaryTxt, { color: darkMode ? "#FFF" : "#111" }]}>
-                Save
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={onShare}
-              style={[styles.primaryBtn, { backgroundColor: HELP_BLUE }]}
-            >
-              <Text style={styles.primaryTxt}>Share Invoice</Text>
-            </TouchableOpacity>
-          </View>
+          
 
           <View style={{ height: 40 }} />
         </Animated.ScrollView>
@@ -920,6 +1007,29 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
 
+tapWrapRight: {
+  minHeight: 44,      // Apple minimum touch target
+  paddingVertical: 8, // invisible forgiveness
+  paddingHorizontal: 8,
+  borderRadius: 12,
+  alignItems: "flex-end",
+  justifyContent: "center",
+},
+
+
+titleTapZone: {
+  minHeight: 36,        // compact title strip
+  justifyContent: "center",
+},
+
+noteTapZone: {
+  minHeight: 80,        // big comfortable writing zone (blue box)
+  justifyContent: "flex-start",
+  paddingTop: 4,
+},
+
+
+
   metaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -942,7 +1052,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   itemTitleInput: { fontSize: 15, fontWeight: "600", marginBottom: 3 },
-  itemNoteInput: { fontSize: 13 },
+  itemNoteInput: {
+  fontSize: 13,
+},
+
+
   itemSideInput: { fontSize: 13, fontWeight: "600", textAlign: "right" },
   amountPill: {
     paddingHorizontal: 10,
@@ -996,12 +1110,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   secondaryBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderRadius: 14,
-    alignItems: "center",
-  },
+  flex: 1,
+  paddingVertical: 14,
+  borderWidth: 1,
+  borderRadius: 14,
+  flexDirection: "row",      // 👈 important
+  alignItems: "center",
+  justifyContent: "center",  // 👈 important
+},
   secondaryTxt: { fontSize: 16, fontWeight: "700" },
 
   primaryBtn: {

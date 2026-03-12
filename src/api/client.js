@@ -1,10 +1,12 @@
 // src/api/client.js
 import axios from "axios";
 
-export const API_BASE = "https://helpio-backend.onrender.com";
+import { API_BASE_URL } from "../config/apiBase";
+export const API_BASE = API_BASE_URL;
+
 
 const api = axios.create({
-  baseURL: API_BASE,
+  baseURL: API_BASE_URL,
   timeout: 20000,
 });
 

@@ -238,98 +238,69 @@ console.log("🔥 CLIENTS RESPONSE:", data);
 
 
       <View style={styles.content}>
-        {/* 📊 DASHBOARD BUTTON ABOVE SEARCH */}
-<TouchableOpacity
-  onPress={() => navigation.navigate("CRMDashboard")}
-  style={{
-    alignSelf: "flex-start",
-    marginLeft: 4,
-    marginBottom: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: darkMode
-      ? "rgba(255,255,255,0.07)"
-      : "rgba(0,0,0,0.05)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-  }}
->
-  <Ionicons
-    name="stats-chart-outline"
-    size={18}
-    color={darkMode ? "#FFF" : "#111"}
-    style={{ marginRight: 6 }}
-  />
-  <Text
-    style={{
-      fontSize: 14,
-      fontWeight: "700",
-      color: darkMode ? "#FFF" : "#111",
+
+  {/* 🔒 TOP CONTROLS */}
+  <View style={styles.controlsWrap}>
+
+    {/* Dashboard */}
+    <TouchableOpacity
+      onPress={() => navigation.navigate("CRMDashboard")}
+      style={styles.dashboardButton}
+    >
+      <Ionicons
+        name="stats-chart-outline"
+        size={18}
+        color={darkMode ? "#FFF" : "#111"}
+        style={{ marginRight: 6 }}
+      />
+      <Text style={styles.dashboardLabel}>Dashboard</Text>
+    </TouchableOpacity>
+
+    {/* Search */}
+    <View
+      style={[
+        styles.searchBar,
+        {
+          backgroundColor: darkMode
+            ? "rgba(255,255,255,0.06)"
+            : "rgba(0,0,0,0.04)",
+        },
+      ]}
+    >
+      <Ionicons name="search" size={18} />
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Search clients…"
+        value={query}
+        onChangeText={setQuery}
+      />
+    </View>
+
+    {/* Sort */}
+    <View style={styles.sortRow}>
+      <SortChip label="Recent" mode="recent" />
+      <SortChip label="A–Z" mode="az" />
+    </View>
+
+  </View>
+
+  {/* 📄 CONTACTS LIST */}
+  <FlatList
+    data={filteredClients}
+    keyExtractor={(item) => item._id}
+    renderItem={renderClient}
+    contentContainerStyle={{
+      paddingHorizontal: 14,
+      paddingTop: 6,
+      paddingBottom: 40,
     }}
-  >
-    Dashboard
-  </Text>
-</TouchableOpacity>
+    showsVerticalScrollIndicator={false}
+    keyboardShouldPersistTaps="handled"
+    ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+  />
 
-<View
-  style={[
-    styles.searchBar,
-    {
-      backgroundColor: darkMode
-        ? "rgba(255,255,255,0.06)"
-        : "rgba(0,0,0,0.04)",
-    },
-  ]}
->
+</View>
 
-          <Ionicons
-            name="search"
-            size={18}
-            color={darkMode ? "#8E8E93" : "#A1A1A6"}
-          />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search clients…"
-            placeholderTextColor={darkMode ? "#8E8E93" : "#A1A1A6"}
-            value={query}
-            onChangeText={setQuery}
-          />
-          {query.length > 0 && (
-            <TouchableOpacity onPress={() => setQuery("")}>
-              <Ionicons
-                name="close-circle"
-                size={18}
-                color={darkMode ? "#8E8E93" : "#A1A1A6"}
-              />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={styles.sortRow}>
-          <SortChip label="Recent" mode="recent" />
-          <SortChip label="A–Z" mode="az" />
-        </View>
-
-        <FlatList
-          data={filteredClients}
-          keyExtractor={(item) => item._id}
-          renderItem={renderClient}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-            />
-          }
-          contentContainerStyle={{
-            paddingBottom: 40,
-            paddingTop: 6,
-          }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-        />
-      </View>
     </SafeAreaView>
   );
 }
@@ -378,6 +349,8 @@ const styles = StyleSheet.create({
     marginBottom: -5,
   },
 
+
+  
   headerSubtitleAbsolute: {
     position: "absolute",
     left: 0,
@@ -404,9 +377,35 @@ const styles = StyleSheet.create({
 
   content: {
   flex: 1,
-  paddingTop: 128, // << FIX
-  paddingHorizontal: 14,
+  paddingTop: 60, // << FIX
+  paddingHorizontal: 0,
 },
+
+
+
+controlsWrap: {
+  paddingHorizontal: 14,
+  marginBottom: 6,
+},
+
+dashboardButton: {
+  alignSelf: "flex-start",
+  flexDirection: "row",
+  alignItems: "center",
+  backgroundColor: "rgba(0,0,0,0.05)",
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+  borderRadius: 12,
+  marginBottom: 10,
+},
+
+dashboardLabel: {
+  fontSize: 14,
+  fontWeight: "700",
+},
+
+
+
 
 
   searchBar: {

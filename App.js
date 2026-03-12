@@ -17,7 +17,7 @@ import { BlurView } from "expo-blur";
 import { ThemeProvider, useTheme } from "./src/ThemeContext";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import useAuthStore from "./src/store/auth";
-
+import { DeviceEventEmitter } from "react-native";
 
 // Screens
 import ClientDetailScreen from "./src/screens/ClientDetailScreen";
@@ -58,6 +58,18 @@ import SubscriptionPlanDetailScreen from "./src/screens/SubscriptionPlanDetailSc
 import ProviderOnboardingScreen from "./src/screens/ProviderOnboardingScreen";
 import WebhookEventsScreen from "./src/screens/WebhookEventsScreen";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import SearchMarketplaceScreen from "./src/screens/SearchMarketplaceScreen";
+import ProviderProfileScreen from "./src/screens/ProviderProfileScreen";
+import RegisterScreen from "./src/screens/RegisterScreen";
+import LocationPickerScreen from "./src/screens/LocationPickerScreen";
+import LegalPoliciesScreen from "./src/screens/LegalPoliciesScreen";
+import EditProfileScreen from "./src/screens/EditProfileScreen";
+import BusinessPlaceProductsScreen from "./src/screens/BusinessPlaceProductsScreen";
+import PayoutScreen from "./src/screens/PayoutScreen";
+
+
+
+
 
 
 
@@ -77,6 +89,8 @@ function AuthGate() {
   const isHydrated = useAuthStore((state) => state.isHydrated);
   const hydrate = useAuthStore((state) => state.hydrate);
 
+
+
   useEffect(() => {
     hydrate();
   }, []);
@@ -86,16 +100,18 @@ function AuthGate() {
   }
 
   // Not logged in
-  if (!token || !user) {
-    return <LoginScreen />;
-  }
+ if (!token || !user) {
+  return <AuthStack />;
+}
 
   return <RootNavigator />;
 }
 
 function TabNavigator({ navigation }) {
+
   const { darkMode } = useTheme();
   const tint = darkMode ? "dark" : "light";
+  const lastHomeTapRef = useRef(0);
 
   return (
     <Tab.Navigator
@@ -247,29 +263,40 @@ function TabNavigator({ navigation }) {
             iconName = focused ? "chatbubble-ellipses" : "chatbubble-ellipses-outline";
           else if (route.name === "Invoices")
             iconName = focused ? "document-text" : "document-text-outline";
-          else if (route.name === "Menu")
-            return (
-              <Image
-                source={{ uri: "https://i.imgur.com/NvL4a7X.png" }}
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 20,
-                  borderWidth: focused ? 2 : 0,
-                  borderColor: focused
-                    ? darkMode
-                      ? "#00A6FF"
-                      : "#007AFF"
-                    : "transparent",
-                }}
-              />
-            );
+        else if (route.name === "Dashboard") {
+  return (
+    <Ionicons
+      name={focused ? "stats-chart" : "stats-chart-outline"}
+      size={25}
+      color={color}
+    />
+  );
+}
 
           return <Ionicons name={iconName} size={25} color={color} />;
         },
       })}
     >
-      <Tab.Screen name="Home" component={AllServicesScreen} />
+      <Tab.Screen
+  name="Home"
+  component={AllServicesScreen}
+  listeners={({ navigation }) => ({
+    tabPress: () => {
+      const now = Date.now();
+      const delta = now - lastHomeTapRef.current;
+
+      if (delta < 300) {
+        // double tap
+        DeviceEventEmitter.emit("HELPIO_HOME_TAP", { type: "double", ts: now });
+      } else {
+        // single tap
+        DeviceEventEmitter.emit("HELPIO_HOME_TAP", { type: "single", ts: now });
+      }
+
+      lastHomeTapRef.current = now;
+    },
+  })}
+/>
       <Tab.Screen name="Messages" component={MessagesScreen} />
       <Tab.Screen
         name="HelpioPay"
@@ -277,10 +304,44 @@ function TabNavigator({ navigation }) {
         options={{ tabBarLabel: "" }}
       />
       <Tab.Screen name="Invoices" component={InvoicesHomeScreen} />
-      <Tab.Screen name="Menu" component={MenuScreen} />
+    <Tab.Screen
+  name="Dashboard"
+  component={AnalyticsDashboardScreen}
+  listeners={({ navigation }) => ({
+    tabPress: (e) => {
+      const { user } = useAuthStore.getState();
+
+      const providerId =
+        user?.providerId && typeof user.providerId === "object"
+          ? user.providerId._id
+          : user?.providerId || null;
+
+      if (!providerId) {
+        e.preventDefault();
+        navigation.navigate("BusinessPlaceProducts");
+      }
+    },
+  })}
+/>
+
     </Tab.Navigator>
   );
 }
+
+function AuthStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen
+        name="ProviderOnboarding"
+        component={ProviderOnboardingScreen}
+      />
+    </Stack.Navigator>
+  );
+}
+
+
 
 function RootNavigator() {
   return (
@@ -293,22 +354,36 @@ function RootNavigator() {
         <Stack.Screen name="HelpiosChoice" component={HelpiosChoiceScreen} />
         <Stack.Screen name="HelpioVerified" component={HelpioVerifiedScreen} />
         <Stack.Screen name="TrendingNow" component={TrendingNowScreen} />
+        <Stack.Screen name="Register" component={RegisterScreen} />
 
         {/* Pay modal */}
-        <Stack.Screen
-          name="HelpioPay"
-          component={HelpioPayScreen}
-          options={{
-            presentation: "transparentModal",
-            animation: "slide_from_bottom",
-          }}
-        />
+       <Stack.Screen
+  name="HelpioPay"
+  component={HelpioPayScreen}
+  options={{
+    presentation: "fullScreenModal",
+    animation: "fade_from_bottom",
+    gestureEnabled: false,
+  }}
+/>
 
-        {/* Onboarding */}
         <Stack.Screen
-          name="ProviderOnboardingScreen"
-          component={ProviderOnboardingScreen}
-        />
+  name="MenuScreen"
+  component={MenuScreen}
+  options={{
+    headerShown: false,
+    presentation: "card", // feels native push
+  }}
+/>
+
+
+
+<Stack.Screen
+  name="LocationPicker"
+  component={LocationPickerScreen}
+  options={{ presentation: "fullScreenModal", headerShown: false }}
+/>
+
 
         {/* Everything else unchanged */}
         <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
@@ -326,7 +401,11 @@ function RootNavigator() {
         <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
         <Stack.Screen name="SupportScreen" component={SupportScreen} />
         <Stack.Screen name="LoginScreen" component={LoginScreen} />
-
+<Stack.Screen
+  name="LegalPoliciesScreen"
+  component={LegalPoliciesScreen}
+  options={{ headerShown: false }}
+/>
         {/* Invoicing */}
         <Stack.Screen name="ClientsScreen" component={ClientsScreen} />
         <Stack.Screen name="SubscriptionPlanDetail" component={SubscriptionPlanDetailScreen} />
@@ -344,6 +423,39 @@ function RootNavigator() {
         <Stack.Screen name="WebhookEventsScreen" component={WebhookEventsScreen} />
 
       
+<Stack.Screen
+  name="SearchMarketplace"
+  component={SearchMarketplaceScreen}
+  options={{ headerShown: false }}
+/>
+
+
+<Stack.Screen
+  name="PayoutScreen"
+  component={PayoutScreen}
+/>
+
+
+<Stack.Screen
+  name="ProviderProfile"
+  component={ProviderProfileScreen}
+  options={{ headerShown: false }}
+/>
+
+
+<Stack.Screen
+  name="EditProfileScreen"
+  component={EditProfileScreen}
+  options={{ presentation: "card" }}
+/>
+
+
+<Stack.Screen
+  name="BusinessPlaceProducts"
+  component={BusinessPlaceProductsScreen}
+  options={{ headerShown: false }}
+/>
+
  </Stack.Navigator>
   );
 }
@@ -381,3 +493,4 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 });
+

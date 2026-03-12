@@ -78,12 +78,7 @@ export default function SettingsScreen() {
             Preferences
           </Text>
 
-          <Row
-            icon="moon-outline"
-            label="Dark Mode"
-            value={darkMode}
-            onToggle={toggleTheme}
-          />
+         
 
           <View style={styles.divider} />
 

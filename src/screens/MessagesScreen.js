@@ -16,15 +16,22 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute, useNavigation } from "@react-navigation/native";
+import { useFocusEffect } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 import { useTheme } from "../ThemeContext";
 import { api } from "../config/api";
+import IosAvatar from "../components/IosAvatar";
+import useAuthStore from "../store/auth";
+import { io } from "socket.io-client";
+
+
 
 const HELP_IO_BLUE = "#00A6FF";
 
 export default function MessagesScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const socketRef = useRef(null);
   const { darkMode, theme } = useTheme();
 
   const [messages, setMessages] = useState([]);
@@ -36,6 +43,9 @@ export default function MessagesScreen() {
   /* ---------------- Large Title Animation ---------------- */
   const scrollY = useRef(new Animated.Value(0)).current;
 
+const user = useAuthStore((s) => s.user);
+
+  
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, 60],
     outputRange: [0, 1],
@@ -55,38 +65,72 @@ export default function MessagesScreen() {
   });
 
   /* ---------------- Fetch Messages ---------------- */
-  const fetchMessages = async () => {
+  const fetchMessages = React.useCallback(async () => {
   try {
     setLoading(true);
 
     const res = await api.get("/api/conversations");
-
     const conversations = res.data?.conversations || [];
 
- const mapped = conversations.map((c) => {
-  const hasMessage = !!c.lastMessageText;
+   const mapped = conversations.map((c) => {
   const isServiceChat = !!c.serviceId;
 
+// 🔥 TRUE logged-in identity (provider OR customer)
+const myId =
+  (user?.providerId || user?.customerId || "").toString();
+
+const providerId = c.providerId?.toString();
+const customerId = c.customerId?.toString();
+
+const isUnread = c.unread;
+
+let displayName = "Conversation";
+let avatar = null;
+let phone = null;
+
+// 🧠 Always show the OTHER participant
+if (myId === providerId) {
+  // I am the provider in THIS conversation → show customer
+  displayName =
+    c.customer?.name ||
+    c.customer?.phone ||
+    "New Customer";
+
+  avatar = c.customer?.avatar || null;
+  phone = c.customer?.phone || null;
+
+} else if (myId === customerId) {
+  // I am the customer in THIS conversation → show provider
+  displayName =
+    c.provider?.businessName ||
+    c.provider?.name ||
+    "Business";
+
+  avatar = c.provider?.avatar || null;
+  phone = c.provider?.phone || null;
+
+} else {
+  // Fallback safety
+  displayName =
+    c.provider?.businessName ||
+    c.customer?.name ||
+    "Conversation";
+}
   return {
     _id: c._id,
     customerId: c.customerId,
     serviceId: c.serviceId,
+    providerId: c.providerId || null,
 
-    // 🔥 PRIORITY: service > customer
-    name: isServiceChat
-      ? c.serviceTitle || "Service Inquiry"
-      : c.customer?.name || "Customer",
+    name: displayName, // ✅ correct placement
 
-    avatar: isServiceChat
-      ? c.serviceThumbnail || null
-      : c.customer?.avatar || null,
+   avatar,
+phone,
 
-    phone: isServiceChat
-      ? null
-      : c.customer?.phone || null,
 
-    lastMsg: hasMessage ? c.lastMessageText : "Start of conversation",
-    unread: c.unread || false,
+    lastMsg: c.lastMessageText || "Start of conversation",
+
+    unread: isUnread,
 
     time: new Date(c.updatedAt).toLocaleTimeString([], {
       hour: "numeric",
@@ -96,7 +140,6 @@ export default function MessagesScreen() {
 });
 
 
-
     setMessages(mapped);
   } catch (err) {
     console.log("❌ Fetch conversations error:", err);
@@ -104,11 +147,86 @@ export default function MessagesScreen() {
     setLoading(false);
     setRefreshing(false);
   }
-};
+}, [user?._id, user?.providerId]);
 
-  useEffect(() => {
+useEffect(() => {
+  socketRef.current = io("https://helpio-backend.onrender.com", {
+    transports: ["websocket"],
+  });
+
+  // 🔥 JOIN ONLY THE REAL ID USED BY BACKEND
+  if (user?.providerId) {
+    socketRef.current.emit("joinUserRoom", user.providerId.toString());
+  }
+
+  if (user?.customerId) {
+    socketRef.current.emit("joinUserRoom", user.customerId.toString());
+  }
+
+  // ❌ REMOVE _id JOIN — THIS IS CAUSING THE ISSUE
+  // socketRef.current.emit("joinUserRoom", user._id);
+
+  return () => {
+    socketRef.current?.disconnect();
+  };
+}, [user]);
+
+
+useEffect(() => {
+  if (!socketRef.current) return;
+
+  socketRef.current.on("newMessage", (msg) => {
+  console.log("📩 New message received in MessagesScreen");
+
+  setMessages((prev) => {
+    const updated = [...prev];
+
+    const index = updated.findIndex(
+      (c) => c._id === msg.conversationId
+    );
+
+    if (index !== -1) {
+      // Update existing conversation
+      updated[index] = {
+        ...updated[index],
+        lastMsg: msg.text || "📷 Photo",
+        unread: true,
+        time: new Date().toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+        }),
+      };
+
+      // Move it to the top
+      const convo = updated.splice(index, 1)[0];
+      updated.unshift(convo);
+    } else {
+      // If conversation isn't in list yet, fetch once
+      fetchMessages();
+      return prev;
+    }
+
+    return updated;
+  });
+});
+
+  return () => {
+    socketRef.current.off("newMessage");
+  };
+}, [fetchMessages]);
+
+useEffect(() => {
+  console.log("👤 CUSTOMER USER OBJECT:", user);
+}, [user]);
+
+
+ useFocusEffect(
+  React.useCallback(() => {
     fetchMessages();
-  }, []);
+  }, [fetchMessages])
+);
+
+
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -215,26 +333,29 @@ export default function MessagesScreen() {
         ) : (
           <View style={{ marginTop: 20 }}>
             {filteredMessages.map((msg) => (
-              <TouchableOpacity
+           <TouchableOpacity
   key={msg._id}
   activeOpacity={0.65}
   style={[styles.messageRow, { backgroundColor: theme.card }]}
   onPress={() =>
-  navigation.navigate("ChatDetail", {
-    conversationId: msg._id,
-    customerId: msg.customerId,
-    name: msg.name || "Customer",
-    avatar: msg.avatar || null,
-    phoneNumber: msg.phone || null,
-  })
-}
-
+    navigation.navigate("ChatDetail", {
+      conversationId: msg._id,
+      providerId: msg.providerId || null,
+      serviceId: msg.serviceId || null,
+      name: msg.name || "Customer",
+      avatar: msg.avatar || null,
+      phoneNumber: msg.phone || null,
+    })
+  }
 >
-
-                <Image
-  source={{ uri: msg.avatar || "https://ui-avatars.com/api/?name=User&background=0A6CFF&color=fff" }}
-  style={styles.avatar}
-/>
+  {/* ✅ Fixed avatar column */}
+  <View style={styles.avatarWrapper}>
+    {msg.avatar ? (
+      <Image source={{ uri: msg.avatar }} style={styles.avatar} />
+    ) : (
+      <IosAvatar name={msg.name} size={54} />
+    )}
+  </View>
 
 
 
@@ -347,12 +468,23 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(0,0,0,0.08)",
   },
-  avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    marginRight: 14,
-  },
+
+
+avatarWrapper: {
+  width: 60,        // 👈 creates the invisible iOS grid column
+  alignItems: "center",
+  marginRight: 6,
+},
+
+avatar: {
+  width: 54,
+  height: 54,
+  borderRadius: 27,
+},
+
+
+
+  
   name: {
     fontSize: 16,
   },
@@ -379,3 +511,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
+
+

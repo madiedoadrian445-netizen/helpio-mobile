@@ -15,7 +15,10 @@ import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../ThemeContext";
 
-const API_BASE_URL = "https://helpio-backend.onrender.com";
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ??
+  "https://floors-procedures-flows-jimmy.trycloudflare.com";
+
 const CLIENTS_ENDPOINT = "/api/clients";
 
 const formatPhonePretty = (phoneRaw = "") => {

@@ -1,6 +1,6 @@
-// src/api/auth.js
 import api from "./index";
 
+/* ---------------- LOGIN ---------------- */
 export async function login(email, password) {
   const body = {
     email: (email || "").trim().toLowerCase(),
@@ -8,17 +8,35 @@ export async function login(email, password) {
   };
 
   const { data } = await api.post("/api/auth/login", body);
-  return data; // { token, user, provider }
+  return data; // { token, user, providerId }
 }
 
-export async function register({ name, email, password, role = "provider" }) {
+/* ---------------- REGISTER CUSTOMER ---------------- */
+export async function register({ name, email, password }) {
   const body = {
     name: (name || "").trim(),
     email: (email || "").trim().toLowerCase(),
     password: (password || "").trim(),
-    role,
   };
 
   const { data } = await api.post("/api/auth/register", body);
   return data; // { token, user }
+}
+
+/* ---------------- REGISTER PROVIDER (TEMP FLOW) ---------------- */
+export async function registerProvider({
+  name,
+  email,
+  password,
+  companyName,
+}) {
+  const body = {
+    name: (name || "").trim(),
+    email: (email || "").trim().toLowerCase(),
+    password: (password || "").trim(),
+    companyName: (companyName || "").trim(),
+  };
+
+  const { data } = await api.post("/api/auth/register-provider", body);
+  return data; // { token, user{ providerId } }
 }

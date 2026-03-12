@@ -1,5 +1,5 @@
 // src/screens/AnalyticsDashboardScreen.js
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -13,36 +13,33 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import useAuthStore from "../store/auth";
 import Animated, {
   useSharedValue,
-  useAnimatedStyle,
   withTiming,
   Easing,
 } from "react-native-reanimated";
 import { useTheme } from "../ThemeContext";
-
 const HELP_BLUE = "#00A6FF";
 
 // Mock revenue data – last 12 days
-const REVENUE_DATA = [
-  { label: "Jan 14", value: 5000 },
-  { label: "Jan 15", value: 8200 },
-  { label: "Jan 16", value: 7400 },
-  { label: "Jan 17", value: 9300 },
-  { label: "Jan 18", value: 6600 },
-  { label: "Jan 19", value: 12000 },
-  { label: "Jan 20", value: 10800 },
-  { label: "Jan 21", value: 14500 },
-  { label: "Jan 22", value: 9800 },
-  { label: "Jan 23", value: 13800 },
-  { label: "Feb 4", value: 16200 },
-  { label: "Feb 11", value: 17500 },
-];
 
 export default function AnalyticsDashboardScreen({ navigation }) {
   const { darkMode, theme } = useTheme();
   const isLight = !darkMode;
   const insets = useSafeAreaInsets();
+
+const user = useAuthStore((state) => state.user);
+const providerId = user?.providerId;
+const [analytics, setAnalytics] = useState({
+  salesToday: 0,
+  invoicesToday: 0,
+  subscriptions: 0,
+  totalLast30Days: 0,
+  previous30DaysGrowth: 0,
+  lastYearGrowth: 0,
+  revenueData: [],
+});
 
   // Shared animation value for the bars (0 → 1)
   const progress = useSharedValue(0);
@@ -54,20 +51,16 @@ export default function AnalyticsDashboardScreen({ navigation }) {
     });
   }, [progress]);
 
-  const maxRevenue = useMemo(
-    () => Math.max(...REVENUE_DATA.map((d) => d.value)),
-    []
-  );
+ 
 
-  const totalLast30 = useMemo(
-    () => REVENUE_DATA.reduce((sum, d) => sum + d.value, 0),
-    []
-  );
 
-  // Fake growth numbers (for the KPIs on the card)
-  const growthVs7 = "+22%";
-  const growthVsLastYear = "+92%";
+const maxRevenue =
+  analytics.revenueData.length > 0
+    ? Math.max(...analytics.revenueData.map((d) => d.value))
+    : 1;
+  
 
+ 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       {/* Frosted background */}
@@ -88,7 +81,7 @@ export default function AnalyticsDashboardScreen({ navigation }) {
   style={[
     styles.headerWrap,
     {
-      paddingTop: insets.top - 15,   // ← must be inside an object
+      paddingTop: insets.top - 32,   // ← must be inside an object
     },
   ]}
 >
@@ -126,19 +119,23 @@ export default function AnalyticsDashboardScreen({ navigation }) {
           </Text>
         </View>
 
-        <View style={styles.headerRight}>
-          <BlurView
-            intensity={40}
-            tint={isLight ? "light" : "dark"}
-            style={styles.settingsBlur}
-          >
-            <Ionicons
-              name="settings-outline"
-              size={18}
-              color={isLight ? "#111827" : "#f9fafb"}
-            />
-          </BlurView>
-        </View>
+      <TouchableOpacity
+  style={styles.headerRight}
+  activeOpacity={0.85}
+  onPress={() => navigation.navigate("LegalPoliciesScreen")}
+>
+  <BlurView
+    intensity={40}
+    tint={isLight ? "light" : "dark"}
+    style={styles.settingsBlur}
+  >
+    <Ionicons
+      name="settings-outline"
+      size={18}
+      color={isLight ? "#111827" : "#f9fafb"}
+    />
+  </BlurView>
+</TouchableOpacity>
       </View>
 
       <ScrollView
@@ -150,24 +147,26 @@ export default function AnalyticsDashboardScreen({ navigation }) {
       >
         {/* KPI tiles */}
         <View style={styles.kpiRow}>
-          <MiniKpiTile
-            label="Sales so far today"
-            value="$110,771"
-            accent={HELP_BLUE}
-            isLight={isLight}
-          />
-          <MiniKpiTile
-            label="Invoices today"
-            value="12"
-            accent="#34C759"
-            isLight={isLight}
-          />
-          <MiniKpiTile
-            label="Subscriptions"
-            value="18"
-            accent="#22C55Eff"
-            isLight={isLight}
-          />
+       <MiniKpiTile
+  label="Sales so far today"
+  value={`$${analytics.salesToday.toLocaleString()}`}
+  accent={HELP_BLUE}
+  isLight={isLight}
+/>
+
+<MiniKpiTile
+  label="Invoices today"
+  value={analytics.invoicesToday}
+  accent="#34C759"
+  isLight={isLight}
+/>
+
+<MiniKpiTile
+  label="Subscriptions"
+  value={analytics.subscriptions}
+  accent="#22C55E"
+  isLight={isLight}
+/>
         </View>
 
         {/* Service Sales card with bar chart */}
@@ -191,7 +190,7 @@ export default function AnalyticsDashboardScreen({ navigation }) {
           <View style={styles.salesKpiRow}>
             <View style={{ flex: 1.1 }}>
               <Text style={[styles.salesAmount, { color: theme.text }]}>
-                $703.3K
+               ${analytics.totalLast30Days.toLocaleString()}
               </Text>
               <Text
                 style={[styles.salesSubLabel, { color: theme.subtleText }]}
@@ -200,10 +199,10 @@ export default function AnalyticsDashboardScreen({ navigation }) {
               </Text>
             </View>
 
-            <View style={styles.salesKpiCol}>
-              <Text style={[styles.salesKpiValue, { color: "#22C55E" }]}>
-                {growthVs7}
-              </Text>
+           <View style={styles.salesKpiCol}>
+  <Text style={[styles.salesKpiValue, { color: "#22C55E" }]}>
+    {analytics.previous30DaysGrowth}%
+  </Text>
               <Text
                 style={[
                   styles.salesSubLabel,
@@ -216,7 +215,7 @@ export default function AnalyticsDashboardScreen({ navigation }) {
 
             <View style={styles.salesKpiCol}>
               <Text style={[styles.salesKpiValue, { color: "#22C55E" }]}>
-                {growthVsLastYear}
+              {analytics.lastYearGrowth}%
               </Text>
               <Text
                 style={[
@@ -265,37 +264,37 @@ export default function AnalyticsDashboardScreen({ navigation }) {
                 ))}
               </View>
 
-              <View style={styles.barsRow}>
-                {REVENUE_DATA.map((d, index) => {
-                  const normalized = d.value / maxRevenue;
-                  const targetHeight = 140 * normalized;
+          <View style={styles.barsRow}>
+  {analytics.revenueData.length === 0 ? (
+    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+      <Text style={{ color: theme.subtleText, fontSize: 12 }}>
+        No analytics data yet
+      </Text>
+    </View>
+  ) : (
+    analytics.revenueData.map((d, index) => {
+      const normalized = d.value / maxRevenue;
+      const targetHeight = 140 * normalized;
 
-                  const animatedStyle = useAnimatedStyle(
-                    () => ({
-                      height: targetHeight * progress.value,
-                      opacity: 0.2 + 0.8 * progress.value,
-                    }),
-                    [targetHeight]
-                  );
-
-                  return (
-                    <View key={d.label + index} style={styles.barWrapper}>
-                      <Animated.View
-                        style={[
-                          styles.bar,
-                          animatedStyle,
-                          {
-                            backgroundColor: isLight
-                              ? HELP_BLUE
-                              : "rgba(56,189,248,0.95)",
-                          },
-                        ]}
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-
+      return (
+        <View key={index} style={styles.barWrapper}>
+          <Animated.View
+            style={[
+              styles.bar,
+              {
+                height: targetHeight * progress.value,
+                opacity: 0.2 + 0.8 * progress.value,
+                backgroundColor: isLight
+                  ? HELP_BLUE
+                  : "rgba(56,189,248,0.95)",
+              },
+            ]}
+          />
+        </View>
+      );
+    })
+  )}
+</View>
               <View style={styles.xAxisLabelsRow}>
                 <Text
                   style={[styles.xAxisLabel, { color: theme.subtleText }]}
@@ -362,18 +361,30 @@ export default function AnalyticsDashboardScreen({ navigation }) {
   onPress={() => navigation.navigate("AlertsRemindersScreen")}
 />
 
-        <DashboardRow
+
+
+
+
+
+<DashboardRow
   icon="card-outline"
   label="Payouts & balances"
-  onPress={() => navigation.navigate("PayoutsBalancesScreen")}
+  onPress={() => {
+    navigation.navigate("PayoutsBalancesScreen", {
+      providerId: user?.providerId
+    });
+  }}
 />
 
-          <DashboardRow
-            icon="trending-up-outline"
-            label="Boost visibility"
-            showDivider={false}
-            onPress={() => {}}
-          />
+
+
+
+         <DashboardRow
+  icon="albums-outline"
+  label="My listings"
+  showDivider={false}
+  onPress={() => navigation.navigate("MyListingsScreen")}
+/>
         </View>
       </ScrollView>
     </SafeAreaView>

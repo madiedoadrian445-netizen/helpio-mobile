@@ -183,18 +183,22 @@ export default function MenuScreen({ navigation }) {
               label="Messages"
               onPress={() => navigation.navigate("MessagesScreen")}
             />
+           <GridButton
+  icon="card-outline"
+  label="Invoices"
+  onPress={() =>
+    navigation.navigate("MainTabs", {
+      screen: "Invoices",
+    })
+  }
+/>
             <GridButton
-              icon="card-outline"
-              label="Payments"
-              onPress={() => navigation.navigate("HelpioPayScreen")}
+              icon="person-add-outline"
+              label="CRM System"
+              onPress={() => navigation.navigate("ClientsScreen")}
             />
             <GridButton
-              icon="time-outline"
-              label="Orders"
-              onPress={() => navigation.navigate("OrdersScreen")}
-            />
-            <GridButton
-              icon="heart-outline"
+              icon="bookmark-outline"
               label="Saved"
               onPress={() => navigation.navigate("SavedScreen")}
             />
@@ -211,29 +215,22 @@ export default function MenuScreen({ navigation }) {
           />
           <View style={styles.hairline} />
           <Row
-            icon="briefcase-outline"
-            label="Selling Dashboard"
-            onPress={() => navigation.navigate("ProfessionalDashboardA")}
+            icon="stats-chart-outline"
+            label="Helpio Dashboard"
+            onPress={() => navigation.navigate("AnalyticsDashboard")}
           />
           <View style={styles.hairline} />
           <Row
-            icon="cart-outline"
-            label="Buying History"
-            onPress={() => navigation.navigate("BuyingHistoryScreen")}
+            icon="layers-outline"
+            label="Create Subscriptions"
+            onPress={() => navigation.navigate("SubscriptionPlans")}
           />
         </Card>
 
         {/* Preferences */}
         <SectionHeader title="Preferences" />
         <Card>
-          <Row
-            icon="moon-outline"
-            label="Dark Mode"
-            isSwitch
-            switchValue={darkMode}
-            onToggle={toggleTheme}
-          />
-          <View style={styles.hairline} />
+       
           <Row
             icon="notifications"
             label="Push Notifications"

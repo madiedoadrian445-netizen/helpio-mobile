@@ -1,5 +1,5 @@
 // src/screens/CreateListingScreen.js
-import React, { useState, useRef, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   View,
   Text,
@@ -12,59 +12,240 @@ import {
   Animated,
   Platform,
   StatusBar,
-} from "react-native";
+  ActivityIndicator,
+ } from "react-native";
+
+import {
+  saveDraftListing,
+  loadDraftListing,
+  clearDraftListing,
+} from "../utils/draftListingStorage";
+import useAuthStore from "../store/auth";
+
 import * as ImagePicker from "expo-image-picker";
 import DraggableFlatList from "react-native-draggable-flatlist";
-import AnimatedReanimated, {
-  Layout,
-  ZoomIn,
-  ZoomOut,
-} from "react-native-reanimated";
+import AnimatedReanimated, { Layout, ZoomIn, ZoomOut } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { BlurView } from "expo-blur";
-
-const ITEM_SIZE = 100;
+import { api } from "../config/api";
+import CoverEditorModal from "../components/CoverEditorModal";
+const ITEM_SIZE = 120;
 const HELP_IO_BLUE = "#00A6FF";
 const BOTTOM_SCROLL_DELTA = 70;
 
-export default function CreateListingScreen({ navigation }) {
+const Field = memo(function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  theme,
+  darkMode,
+  keyboardType,
+  multiline,
+  onFocus,
+  rightAccessory,
+}) {
+  return (
+    <View style={styles.fieldRow}>
+      <View style={styles.fieldTopRow}>
+        <Text style={[styles.label, { color: theme.subtleText }]}>{label}</Text>
+        {rightAccessory ? <View style={{ marginLeft: 10 }}>{rightAccessory}</View> : null}
+      </View>
+
+      <TextInput
+        style={[
+          styles.input,
+          { color: theme.text },
+          multiline && styles.inputArea,
+        ]}
+        placeholder={placeholder}
+        placeholderTextColor={darkMode ? "#888" : "#A8A8AD"}
+        value={value}
+        onChangeText={onChange}
+        keyboardType={keyboardType}
+        multiline={multiline}
+        onFocus={onFocus}
+      />
+    </View>
+  );
+});
+
+export default function CreateListingScreen({ navigation, route }) {
   const { darkMode, theme } = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [images, setImages] = useState([]);
+  const { mode = "create", listing } = route?.params || {};
+  const isEdit = mode === "edit";
+
+  const [images, setImages] = useState([]); // [{ uri, isRemote }]
   const [video, setVideo] = useState(null);
+const authUser = useAuthStore((state) => state.user);
+
+const providerId =
+  authUser?.providerId ||
+  authUser?.provider?._id ||
+  authUser?.provider ||
+  null;
+
+  const [businessName, setBusinessName] = useState("Your Company Name");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
-  const [location, setLocation] = useState("");
-  const [businessName, setBusinessName] = useState("Your Company Name");
-
+const [editorVisible, setEditorVisible] = useState(false);
+const [editingCover, setEditingCover] = useState(null);
+  // location object from LocationPicker: { city, state, zip, lat, lng, radiusMiles? }
+  const [location, setLocation] = useState(null);
+const [originalCover, setOriginalCover] = useState(null);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [scrollOffset, setScrollOffset] = useState(0);
+  const scrollRef = useRef(null);
+const isHydratingRef = useRef(true);
+const isAuthHydrated = useAuthStore((state) => state.isHydrated);
+const didRestoreRef = useRef(false);
+  
   const blurOpacity = scrollY.interpolate({
     inputRange: [0, 80],
     outputRange: [0, 1],
     extrapolate: "clamp",
   });
 
-  const scrollRef = useRef(null);
 
-  /* TRACK SCROLL OFFSET */
+  const setAsCover = (uri) => {
+  setImages((prev) => {
+    const selected = prev.find((img) => img.uri === uri);
+    const others = prev.filter((img) => img.uri !== uri);
+    return [selected, ...others];
+  });
+};
+
+useEffect(() => {
+  if (!isAuthHydrated) return;
+  if (didRestoreRef.current) return;
+
+  if (isEdit || !providerId) {
+    isHydratingRef.current = false;
+    return;
+  }
+
+  let mounted = true;
+
+  const restoreDraft = async () => {
+    const draft = await loadDraftListing(providerId);
+
+    if (!mounted) return;
+
+    isHydratingRef.current = false;
+    didRestoreRef.current = true;
+
+    if (!draft) return;
+
+    setBusinessName(draft.businessName || "Your Company Name");
+    setTitle(draft.title || "");
+    setDescription(draft.description || "");
+    setCategory(draft.category || "");
+    setPrice(draft.price || "");
+    setImages(draft.images || []);
+    setLocation(draft.location || null);
+    setVideo(draft.video || null);
+
+    Alert.alert("Draft restored", "We restored your unfinished listing.");
+  };
+
+  restoreDraft();
+
+  return () => {
+    mounted = false;
+  };
+}, [isAuthHydrated, isEdit, providerId]);
+
+
+useEffect(() => {
+  if (isEdit) return;
+  if (!providerId) return;
+  if (isHydratingRef.current) return; // 🚫 don't save while restoring
+
+  const draft = {
+    businessName,
+    title,
+    description,
+    category,
+    price,
+    images,
+    location,
+    video,
+  };
+
+  const timeout = setTimeout(() => {
+    saveDraftListing(providerId, draft);
+  }, 800);
+
+  return () => clearTimeout(timeout);
+}, [
+  businessName,
+  title,
+  description,
+  category,
+  price,
+  images,
+  location,
+  video,
+  isEdit,
+  providerId,
+]);
+
+  /* -------------------------
+   HYDRATE EDIT MODE
+------------------------- */
+useEffect(() => {
+  if (!isEdit || !listing) return;
+
+  setTitle(listing.title || "");
+  setDescription(listing.description || "");
+  setCategory(listing.category || "");
+  setPrice(listing.price ? String(listing.price) : "");
+
+  const loc =
+    typeof listing.location === "string"
+      ? { city: listing.location, state: "", zip: "", lat: null, lng: null }
+      : listing.location || null;
+
+  setLocation(loc);
+
+  setBusinessName(
+    listing.businessName || listing.companyName || "Your Company Name"
+  );
+
+  // ✅ FIX — actually hydrate images
+  const rawImages =
+    Array.isArray(listing.images) && listing.images.length
+      ? listing.images
+      : Array.isArray(listing.photos) && listing.photos.length
+      ? listing.photos
+      : [];
+
+  setImages(
+    rawImages.map((img) => ({
+      uri: typeof img === "object" && img.uri ? img.uri : img,
+      isRemote: true,
+    }))
+  );
+
+  if (listing.video) setVideo(listing.video);
+}, [isEdit, listing]);
+  /* -------------------------
+     TRACK SCROLL OFFSET
+  ------------------------- */
   useEffect(() => {
-    const id = scrollY.addListener(({ value }) => {
-      setScrollOffset(value || 0);
-    });
+    const id = scrollY.addListener(({ value }) => setScrollOffset(value || 0));
     return () => scrollY.removeListener(id);
   }, [scrollY]);
 
-  /* MICRO SCROLL FIX */
   const handleBottomFieldFocus = () => {
     if (!scrollRef.current) return;
-
     const targetY = scrollOffset + BOTTOM_SCROLL_DELTA;
 
     if (scrollRef.current.scrollToPosition) {
@@ -74,29 +255,9 @@ export default function CreateListingScreen({ navigation }) {
     }
   };
 
-  /* CONTINUE → PREVIEW */
-  const handlePreview = () => {
-    if (!title || !price || images.length === 0) {
-      Alert.alert(
-        "Missing Info",
-        "Please add at least 1 photo, a title, and a price."
-      );
-      return;
-    }
-
-    navigation.navigate("PreviewListing", {
-      title,
-      description,
-      category,
-      price,
-      location,
-      images,
-      businessName,
-      video,
-    });
-  };
-
-  /* PICK MEDIA */
+  /* -------------------------
+     MEDIA
+  ------------------------- */
   const pickMedia = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -119,7 +280,7 @@ export default function CreateListingScreen({ navigation }) {
         if (asset.type?.startsWith("video")) {
           if (!newVideo) newVideo = asset.uri;
         } else {
-          newPhotos.push(asset.uri);
+          newPhotos.push({ uri: asset.uri, isRemote: false });
         }
       });
 
@@ -128,7 +289,6 @@ export default function CreateListingScreen({ navigation }) {
     }
   };
 
-  /* RECORD VIDEO */
   const recordVideo = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
@@ -145,270 +305,191 @@ export default function CreateListingScreen({ navigation }) {
     if (!result.canceled) setVideo(result.assets[0].uri);
   };
 
-  /* DRAGGABLE IMAGE RENDERER */
-  const renderImage = ({ item, drag, isActive }) => (
+  /* -------------------------
+     DRAGGABLE THUMBNAILS
+  ------------------------- */
+const renderThumb = ({ item, drag, isActive, index }) => {
+  const isCover = index === 0;
+
+  return (
     <AnimatedReanimated.View
       entering={ZoomIn}
       exiting={ZoomOut}
       layout={Layout.springify()}
       style={[
-        styles.imageWrapper,
+        styles.thumbWrap,
         {
           backgroundColor: theme.card,
-          borderColor: darkMode ? "#333" : "#E5E5EA",
+          borderColor: darkMode
+            ? "rgba(255,255,255,0.10)"
+            : "rgba(0,0,0,0.10)",
+          borderWidth: StyleSheet.hairlineWidth,
         },
-        isActive && { transform: [{ scale: 1.08 }], zIndex: 20 },
+        isActive && { transform: [{ scale: 1.06 }], zIndex: 20 },
       ]}
     >
-      <TouchableOpacity activeOpacity={0.9} onLongPress={drag} delayLongPress={80}>
-        <Image source={{ uri: item }} style={styles.image} />
+     <TouchableOpacity
+  activeOpacity={0.9}
+  onLongPress={drag}
+  delayLongPress={80}
+  onPress={() => {
+    if (index === 0) {
+      setEditingCover(item.uri);
+      setEditorVisible(true);
+    }
+  }}
+>
+        <Image source={{ uri: item.uri }} style={styles.thumbImg} />
       </TouchableOpacity>
 
+      {/* COVER BADGE */}
+      {isCover && (
+        <View style={styles.coverInsideBadge}>
+          <Text style={styles.coverInsideText}>COVER</Text>
+        </View>
+      )}
+
       <TouchableOpacity
-        style={styles.removeButton}
-        onPress={() => setImages((prev) => prev.filter((uri) => uri !== item))}
+        style={styles.thumbRemove}
+        onPress={() =>
+          setImages((prev) => prev.filter((img) => img.uri !== item.uri))
+        }
       >
-        <Ionicons name="close-circle" size={22} color="#fff" />
+        <Ionicons name="close-circle" size={20} color="#fff" />
       </TouchableOpacity>
     </AnimatedReanimated.View>
   );
+};
+  /* -------------------------
+     DELETE LISTING
+  ------------------------- */
+  const handleDeleteListing = () => {
+    if (!listing?._id) return;
 
-  /* RENDER UI BLOCK */
-  const renderHeader = () => (
-    <View>
-      {/* --- HERO ------------------------------------------------------- */}
-      <View style={[styles.heroBlock, { paddingTop: Platform.OS === "ios" ? -60 : -20 }]}>
-        <Text style={[styles.heroTitle, { color: theme.text }]}>New listing</Text>
-        <Text style={[styles.heroSubtitle, { color: theme.subtleText }]}>
-          Create a clean, trusted service listing your clients will love.
-        </Text>
+    Alert.alert(
+      "Delete listing",
+      "This action cannot be undone. Are you sure you want to delete this listing?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await api.delete(`/api/listings/provider/${listing._id}`);
+              Alert.alert("Deleted", "Your listing has been removed.");
 
-        <View
-          style={[
-            styles.stepPill,
-            { backgroundColor: darkMode ? "#1F1F24" : "#E7F4FF" },
-          ]}
-        >
-          <View style={[styles.stepDot, { backgroundColor: HELP_IO_BLUE }]} />
-          <Text style={[styles.stepText, { color: HELP_IO_BLUE }]}>Step 1 · Details</Text>
-        </View>
-      </View>
+              navigation.navigate("MainTabs", {
+                screen: "Home",
+              });
+            } catch (err) {
+              Alert.alert("Error", err.response?.data?.message || "Unable to delete listing.");
+            }
+          },
+        },
+      ]
+    );
+  };
 
-      {/* --- BUSINESS --------------------------------------------------- */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>BUSINESS</Text>
-        <View style={[styles.cardGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.cardRow}>
-            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Name</Text>
-            <TextInput
-              style={[styles.cardRowInput, { color: theme.text }]}
-              placeholder="Enter your business name"
-              placeholderTextColor={theme.subtleText}
-              value={businessName}
-              onChangeText={setBusinessName}
-            />
-          </View>
-        </View>
-      </View>
+  /* -------------------------
+     CONTINUE → PREVIEW
+  ------------------------- */
+  const canContinue = useMemo(() => {
+    return Boolean(title?.trim() && price?.trim() && images.length > 0);
+  }, [title, price, images]);
 
-      {/* --- MEDIA ------------------------------------------------------ */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>MEDIA</Text>
+ const handlePreview = () => {
+  if (!canContinue) {
+    Alert.alert("Missing Info", "Please add at least 1 photo, a title, and a price.");
+    return;
+  }
 
-        <View style={[styles.cardGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          {images.length === 0 && !video ? (
-            <View style={styles.mediaEmptyState}>
-              <View style={[styles.mediaIconCircle, { backgroundColor: darkMode ? "#202024" : "#EFF3FA" }]}>
-                <Ionicons name="camera-outline" size={26} color={darkMode ? "#F5F5F7" : "#222"} />
-              </View>
-
-              <Text style={[styles.mediaTitle, { color: theme.text }]}>Add photos and video</Text>
-              <Text style={[styles.mediaSubtitle, { color: theme.subtleText }]}>
-                Listings with photos perform better. Add up to 10 photos and 1 video.
-              </Text>
-
-              <View style={styles.mediaButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.primaryMediaBtn, { backgroundColor: HELP_IO_BLUE }]}
-                  onPress={pickMedia}
-                >
-                  <Ionicons name="image-outline" size={18} color="#fff" />
-                  <Text style={styles.primaryMediaBtnText}>Choose from library</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.secondaryMediaBtn,
-                    { borderColor: darkMode ? "#3F3F46" : "#D6D6D6", backgroundColor: darkMode ? "#151516" : "#F5F5F7" },
-                  ]}
-                  onPress={recordVideo}
-                >
-                  <Ionicons name="videocam-outline" size={18} color={darkMode ? "#F5F5F7" : "#222"} />
-                  <Text style={[styles.secondaryMediaBtnText, { color: darkMode ? "#F5F5F7" : "#222" }]}>Record video</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            <>
-              <View style={styles.mediaHeaderRow}>
-                <Text style={[styles.mediaHeaderTitle, { color: theme.text }]}>Library</Text>
-                <Text style={[styles.mediaCounter, { color: theme.subtleText }]}>
-                  Photos {images.length}/10 · Video {video ? "1/1" : "0/1"}
-                </Text>
-              </View>
-
-              {/* Draggable photo list */}
-              <View style={{ height: ITEM_SIZE + 32, marginTop: 10 }}>
-                <DraggableFlatList
-                  data={images}
-                  keyExtractor={(item) => item}
-                  onDragEnd={({ data }) => setImages(data)}
-                  renderItem={renderImage}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  containerStyle={{ flexGrow: 0 }}
-                  contentContainerStyle={{ paddingRight: 8 }}
-                />
-              </View>
-
-              <View style={styles.mediaButtonsRowCompact}>
-                <TouchableOpacity style={styles.textLinkBtn} onPress={pickMedia}>
-                  <Ionicons name="add-circle-outline" size={18} color={HELP_IO_BLUE} style={{ marginRight: 4 }} />
-                  <Text style={[styles.textLinkBtnText, { color: HELP_IO_BLUE }]}>
-                    Add more media
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.textLinkBtn} onPress={recordVideo}>
-                  <Ionicons name={video ? "videocam" : "videocam-outline"} size={18} color={HELP_IO_BLUE} style={{ marginRight: 4 }} />
-                  <Text style={[styles.textLinkBtnText, { color: HELP_IO_BLUE }]}>
-                    {video ? "Replace video" : "Add video"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-        </View>
-      </View>
-
-      {/* --- DETAILS ---------------------------------------------------- */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>DETAILS</Text>
-        <View style={[styles.cardGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          
-          {/* Title */}
-          <View style={[styles.cardRow, styles.cardRowBorder]}>
-            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Title</Text>
-            <TextInput
-              style={[styles.cardRowInput, { color: theme.text }]}
-              placeholder="What service are you offering?"
-              placeholderTextColor={theme.subtleText}
-              value={title}
-              onChangeText={setTitle}
-            />
-          </View>
-
-          {/* Description */}
-          <View style={[styles.cardRow, styles.cardRowBorder, { paddingVertical: 10 }]}>
-            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Description</Text>
-            <TextInput
-              style={[styles.cardRowInputArea, { color: theme.text }]}
-              placeholder="Describe your service, what's included, and any important details."
-              placeholderTextColor={theme.subtleText}
-              multiline
-              value={description}
-              onChangeText={setDescription}
-            />
-          </View>
-
-          {/* Category */}
-          <View style={styles.cardRow}>
-            <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Category</Text>
-            <TextInput
-              style={[styles.cardRowInput, { color: theme.text }]}
-              placeholder="e.g. Automotive, Home Services"
-              placeholderTextColor={theme.subtleText}
-              value={category}
-              onChangeText={setCategory}
-            />
-          </View>
-        </View>
-      </View>
-
-      {/* --- PRICING ---------------------------------------------------- */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: theme.subtleText }]}>PRICING</Text>
-        <View style={[styles.cardGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          
-          <View style={[styles.inlineRow, styles.cardRowBorder]}>
-            
-            {/* Price */}
-            <View style={styles.inlineItem}>
-              <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Price</Text>
-              <View style={styles.inlineInputRow}>
-                <Text style={[styles.currencySymbol, { color: theme.subtleText }]}>$</Text>
-                <TextInput
-                  style={[styles.inlineInput, { color: theme.text }]}
-                  placeholder="0.00"
-                  keyboardType="numeric"
-                  placeholderTextColor={theme.subtleText}
-                  value={price}
-                  onChangeText={setPrice}
-                  onFocus={handleBottomFieldFocus}
-                />
-              </View>
-            </View>
-
-            {/* Location */}
-            <View style={[styles.inlineItem, { marginLeft: 12 }]}>
-              <Text style={[styles.cardRowLabel, { color: theme.subtleText }]}>Location</Text>
-              <TextInput
-                style={[styles.inlineInputAlone, { color: theme.text }]}
-                placeholder="City or area"
-                placeholderTextColor={theme.subtleText}
-                value={location}
-                onChangeText={setLocation}
-                onFocus={handleBottomFieldFocus}
-              />
-            </View>
-          </View>
-
-          <View style={styles.cardRow}>
-            <Text style={[styles.hint, { color: theme.subtleText }]}>
-              Price can be updated later. You can also customize this per invoice inside Helpio Pay.
-            </Text>
-          </View>
-        </View>
-      </View>
-
-    </View>
+  // ⭐ NEW — REQUIRE VALID LOCATION
+ if (
+  !location ||
+  location.lat == null ||
+  location.lng == null
+) {
+  Alert.alert(
+    "Valid location required",
+    "Please choose a location from the map so coordinates are included."
   );
+  return;
+}
 
-  /* MAIN RETURN */
+  
+
+   navigation.navigate("ServiceDetailScreen", {
+  previewData: {
+    title,
+    description,
+    category,
+    price,
+    location,
+    images,
+    businessName,
+    video,
+  },
+  isPreview: true,
+});
+};
+
+  const locationDisplay = useMemo(() => {
+    if (!location) return "Choose location";
+    const city = location?.city?.trim();
+    const state = location?.state?.trim();
+    if (city && state) return `${city}, ${state}`;
+    if (city) return city;
+    if (location?.zip) return location.zip;
+    return "Choose location";
+  }, [location]);
+
+  const topAvatarUri = images?.[0]?.uri || null;
+
+
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+
+
+    
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
 
-      {/* Frosted nav */}
-      <Animated.View style={[styles.navWrapper, { opacity: blurOpacity }]}>
-        <BlurView intensity={70} tint={darkMode ? "dark" : "light"} style={StyleSheet.absoluteFill} />
-      </Animated.View>
 
-      {/* Nav content */}
-      <View style={styles.navBarContent}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.navSideBtn}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.navSideText, { color: HELP_IO_BLUE }]}>Cancel</Text>
+
+
+
+      {/* HEADER (AddClient style) */}
+      <BlurView intensity={50} tint={theme.blurTint} style={styles.header}>
+        <TouchableOpacity style={styles.headerSide} onPress={() => navigation.goBack()}>
+          <Text style={[styles.headerText, { color: HELP_IO_BLUE }]}>Cancel</Text>
         </TouchableOpacity>
 
-        <Text style={[styles.navTitle, { color: HELP_IO_BLUE }]} />
-        <View style={styles.navSideBtnRight} />
-      </View>
+        <View style={styles.headerCenter}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            {isEdit ? "Edit Listing" : "New Listing"}
+          </Text>
+        </View>
 
-      {/* Scrollable content */}
+        <TouchableOpacity
+          style={styles.headerSide}
+          onPress={handlePreview}
+          disabled={!canContinue}
+        >
+          <Text
+            style={[
+              styles.headerText,
+              {
+                color: canContinue ? HELP_IO_BLUE : "rgba(0,0,0,0)",
+              },
+            ]}
+          >
+            Next
+          </Text>
+        </TouchableOpacity>
+      </BlurView>
+
+      {/* FORM */}
       <KeyboardAwareScrollView
         innerRef={(ref) => (scrollRef.current = ref)}
         showsVerticalScrollIndicator={false}
@@ -417,33 +498,313 @@ export default function CreateListingScreen({ navigation }) {
         extraScrollHeight={0}
         enableAutomaticScroll={false}
         contentContainerStyle={{
-          paddingBottom: 190 + insets.bottom,
-          paddingHorizontal: 18,
-          paddingTop: Platform.OS === "ios" ? 50 : 30,
-        }}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
+  paddingBottom: 140 + insets.bottom,
+  paddingTop: 50,
+}}
+
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+          useNativeDriver: false,
+        })}
         scrollEventThrottle={16}
       >
-        {renderHeader()}
+      {/* --- MEDIA ------------------------------------------------------ */}
+<Text style={[styles.sectionHeader, { color: theme.subtleText }]}>
+  MEDIA
+</Text>
+
+<View
+  style={[
+    styles.card,
+    {
+      backgroundColor: theme.card,
+      shadowOpacity: darkMode ? 0 : 0.06,
+      paddingVertical: images.length === 0 && !video ? 28 : 14,
+      alignItems: images.length === 0 && !video ? "center" : "stretch",
+    },
+  ]}
+>
+  {/* ================= EMPTY STATE ================= */}
+  {images.length === 0 && !video ? (
+    <>
+      <View
+        style={[
+          styles.emptyIconCircle,
+          { backgroundColor: darkMode ? "#202024" : "#EFF3FA" },
+        ]}
+      >
+        <Ionicons
+          name="camera-outline"
+          size={30}
+          color={darkMode ? "#F5F5F7" : "#1C1C1E"}
+        />
+      </View>
+
+      <Text style={[styles.emptyTitle, { color: theme.text }]}>
+        Add photos and video
+      </Text>
+
+      <Text style={[styles.emptySubtitle, { color: theme.subtleText }]}>
+        Listings with photos perform better. Add up to 10 photos and 1 video.
+      </Text>
+
+      <View style={styles.emptyButtonsRow}>
+        <TouchableOpacity
+          style={[styles.primaryEmptyBtn, { backgroundColor: HELP_IO_BLUE }]}
+          onPress={pickMedia}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="image-outline" size={18} color="#fff" />
+          <Text style={styles.primaryEmptyText}>Choose from library</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.secondaryEmptyBtn,
+            {
+              borderColor: darkMode ? "#3A3A3C" : "#D1D1D6",
+              backgroundColor: darkMode ? "#1C1C1E" : "#F2F2F7",
+            },
+          ]}
+          onPress={recordVideo}
+          activeOpacity={0.9}
+        >
+          <Ionicons
+            name="videocam-outline"
+            size={18}
+            color={darkMode ? "#F5F5F7" : "#1C1C1E"}
+          />
+          <Text
+            style={[
+              styles.secondaryEmptyText,
+              { color: darkMode ? "#F5F5F7" : "#1C1C1E" },
+            ]}
+          >
+            Record video
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </>
+  ) : (
+    <>
+      {/* ================= LIBRARY STATE ================= */}
+      <View style={styles.mediaHeaderRow}>
+        <Text style={[styles.mediaHeaderTitle, { color: theme.text }]}>
+          Library
+        </Text>
+
+        <Text style={[styles.mediaCounter, { color: theme.subtleText }]}>
+          Photos {images.length}/10 · Video {video ? "1/1" : "0/1"}
+        </Text>
+      </View>
+
+      <View style={{ marginTop: 16 }}>
+        <DraggableFlatList
+  data={images}
+  keyExtractor={(item, index) => item.uri + index}
+  onDragEnd={({ data }) => setImages(data)}
+  renderItem={({ item, drag, isActive, getIndex }) =>
+    renderThumb({
+      item,
+      drag,
+      isActive,
+      index: getIndex?.() ?? 0,
+    })
+  }
+  horizontal
+  showsHorizontalScrollIndicator={false}
+  contentContainerStyle={{ paddingHorizontal: 4 }}
+/>
+      </View>
+
+      <View style={styles.mediaActionRowBottom}>
+        <TouchableOpacity
+          style={styles.mediaActionBtnBottom}
+          onPress={pickMedia}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add-circle-outline" size={18} color={HELP_IO_BLUE} />
+          <Text style={[styles.mediaActionTextBottom, { color: HELP_IO_BLUE }]}>
+            Add more media
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.mediaActionBtnBottom}
+          onPress={recordVideo}
+          activeOpacity={0.85}
+        >
+          <Ionicons
+            name={video ? "videocam" : "videocam-outline"}
+            size={18}
+            color={HELP_IO_BLUE}
+          />
+          <Text style={[styles.mediaActionTextBottom, { color: HELP_IO_BLUE }]}>
+            {video ? "Replace video" : "Add video"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </>
+  )}
+</View>
+
+ 
+
+
+
+
+        {/* MAIN CARD (like AddClient) */}
+        <View style={[styles.card, { backgroundColor: theme.card, shadowOpacity: darkMode ? 0 : 0.06 }]}>
+          <Field
+            label="Business Name"
+            placeholder="Your Company Name"
+            value={businessName}
+            onChange={setBusinessName}
+            theme={theme}
+            darkMode={darkMode}
+          />
+          <View style={styles.hairline} />
+
+          <Field
+            label="Title"
+            placeholder="What service are you offering?"
+            value={title}
+            onChange={setTitle}
+            theme={theme}
+            darkMode={darkMode}
+          />
+          <View style={styles.hairline} />
+
+          <Field
+            label="Description"
+            placeholder="Describe your service, what's included, and any important details."
+            value={description}
+            onChange={setDescription}
+            theme={theme}
+            darkMode={darkMode}
+            multiline
+          />
+        </View>
+
+        {/* SECTION HEADER */}
+        <Text style={[styles.sectionHeader, { color: theme.subtleText }]}>LISTING INFO</Text>
+
+        <View style={[styles.card, { backgroundColor: theme.card, shadowOpacity: darkMode ? 0 : 0.06 }]}>
+          <Field
+            label="Category"
+            placeholder="e.g. Automotive, Home Services"
+            value={category}
+            onChange={setCategory}
+            theme={theme}
+            darkMode={darkMode}
+          />
+          <View style={styles.hairline} />
+
+          {/* Price row */}
+          <View style={styles.fieldRow}>
+            <Text style={[styles.label, { color: theme.subtleText }]}>Price</Text>
+
+            <View style={styles.priceRow}>
+              <Text style={[styles.currency, { color: theme.subtleText }]}>$</Text>
+              <TextInput
+                style={[styles.input, { color: theme.text, flex: 1 }]}
+                placeholder="0.00"
+                placeholderTextColor={darkMode ? "#888" : "#A8A8AD"}
+                keyboardType="numeric"
+                value={price}
+                onChangeText={setPrice}
+                onFocus={handleBottomFieldFocus}
+              />
+            </View>
+
+            <Text style={[styles.helper, { color: theme.subtleText }]}>
+              Services usually require a quote — you can update pricing later in Helpio Pay.
+            </Text>
+          </View>
+
+          <View style={styles.hairline} />
+
+          {/* Location selector row (Apple “Edit” style) */}
+          <View style={styles.fieldRow}>
+            <Text style={[styles.label, { color: theme.subtleText }]}>Location</Text>
+
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() =>
+                navigation.navigate("LocationPicker", {
+                  onSelect: (loc) => setLocation(loc),
+                })
+              }
+              style={styles.locationRow}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                <Ionicons name="location-outline" size={18} color={HELP_IO_BLUE} />
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.locationText,
+                    { color: location ? theme.text : theme.subtleText },
+                  ]}
+                >
+                  {locationDisplay}
+                </Text>
+              </View>
+
+              <Text style={[styles.locationEdit, { color: HELP_IO_BLUE }]}>Edit</Text>
+            </TouchableOpacity>
+
+            {location?.zip ? (
+              <Text style={[styles.locationSub, { color: theme.subtleText }]}>
+                ZIP {location.zip}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {/* DELETE (Edit mode) */}
+        {isEdit && listing?._id ? (
+          <TouchableOpacity onPress={handleDeleteListing} style={styles.deleteButton} activeOpacity={0.88}>
+            <Ionicons name="trash-outline" size={18} color="#FF3B30" style={{ marginRight: 6 }} />
+            <Text style={styles.deleteText}>Delete Listing</Text>
+          </TouchableOpacity>
+        ) : null}
       </KeyboardAwareScrollView>
 
-      {/* Continue button */}
-      <View style={styles.bottomBarWrapper}>
-        <BlurView intensity={50} tint={darkMode ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+      {/* BOTTOM BAR (AddClient style) */}
+      <BlurView intensity={50} tint={theme.blurTint} style={[styles.bottomBar, { paddingBottom: 18 + (insets.bottom ? 6 : 0) }]}>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={handlePreview}
+          disabled={!canContinue}
+          style={[
+            styles.primaryBtn,
+            { backgroundColor: canContinue ? HELP_IO_BLUE : "#B9B9BC" },
+          ]}
+        >
+          <Text style={styles.primaryBtnText}>Continue</Text>
+        </TouchableOpacity>
+      </BlurView>
 
-        <View style={styles.bottomBarContent}>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={[styles.publishButton, { backgroundColor: HELP_IO_BLUE }]}
-            onPress={handlePreview}
-          >
-            <Text style={styles.publishText}>Continue</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+
+
+
+      {/* Frost fade for header (keeps it Apple-clean) */}
+      <Animated.View pointerEvents="none" style={[styles.headerFade, { opacity: blurOpacity }]}>
+        <BlurView intensity={70} tint={theme.blurTint} style={StyleSheet.absoluteFill} />
+      </Animated.View>
+
+<CoverEditorModal
+  visible={editorVisible}
+  imageUri={editingCover}
+  onClose={() => setEditorVisible(false)}
+  onSave={(newUri) => {
+    setImages((prev) => {
+      const updated = [...prev];
+      updated[0] = { uri: newUri, isRemote: false };
+      return updated;
+    });
+  }}
+/>
+
 
     </SafeAreaView>
   );
@@ -451,285 +812,385 @@ export default function CreateListingScreen({ navigation }) {
 
 /* ---------------- STYLES ---------------- */
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  safe: { flex: 1 },
 
-  navWrapper: {
+  header: {
+    height: 92,
+    paddingTop: Platform.OS === "ios" ? 12 : 8,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    paddingHorizontal: 15,
+    paddingBottom: 8,
     position: "absolute",
     top: 0,
-    width: "100%",
-    height: Platform.OS === "ios" ? 90 : 70,
-    zIndex: 40,
-  },
-  navBarContent: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 55 : 35,
     left: 0,
     right: 0,
-    zIndex: 50,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    paddingHorizontal: 12,
+    zIndex: 20,
   },
-  navTitle: {
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  navSideBtn: {
+  headerSide: { width: 70, justifyContent: "center" },
+  headerCenter: { flex: 1, alignItems: "center" },
+  headerTitle: { fontSize: 17, fontWeight: "700" },
+  headerText: { fontSize: 17, fontWeight: "600" },
+
+  headerFade: {
     position: "absolute",
-    left: 14,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-  },
-  navSideBtnRight: {
-    position: "absolute",
-    right: 14,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-  },
-  navSideText: {
-    fontSize: 16,
-    fontWeight: "500",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: Platform.OS === "ios" ? 100 : 85,
+    zIndex: 10,
   },
 
-  heroBlock: {
+
+
+coverInsideBadge: {
+  position: "absolute",
+  bottom: 8,
+  left: 8,
+  backgroundColor: Platform.OS === "ios"
+    ? "rgba(120,120,128,0.75)"  // systemFill feel
+    : "rgba(0,0,0,0.6)",
+  paddingHorizontal: 10,
+  paddingVertical: 5,
+  borderRadius: 999,
+},
+
+coverInsideText: {
+  color: "#fff",
+  fontSize: 11,
+  fontWeight: "600",
+  letterSpacing: 0.3,
+},
+
+
+  avatarWrap: {
+    alignItems: "center",
     marginBottom: 18,
-    paddingTop: 4,
   },
-  heroTitle: {
-    fontSize: 26,
-    fontWeight: "700",
-  },
-  heroSubtitle: {
-    marginTop: 4,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  stepPill: {
-    marginTop: 12,
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  stepDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  stepText: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
-
-  section: {
-    marginBottom: 24,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-    marginBottom: 8,
-  },
-
-  cardGroup: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
-  cardRow: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  cardRowBorder: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E1E1E1",
-  },
-  cardRowLabel: {
-    fontSize: 13,
-    marginBottom: 4,
-  },
-  cardRowInput: {
-    fontSize: 15,
-    paddingVertical: 0,
-  },
-  cardRowInputArea: {
-    fontSize: 15,
-    paddingVertical: 0,
-    minHeight: 60,
-    textAlignVertical: "top",
-  },
-
-  inlineRow: {
-    flexDirection: "row",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  inlineItem: {
-    flex: 1,
-  },
-  inlineInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 2,
-  },
-  currencySymbol: {
-    fontSize: 15,
-    marginRight: 4,
-  },
-  inlineInput: {
-    flex: 1,
-    fontSize: 15,
-    paddingVertical: 0,
-  },
-  inlineInputAlone: {
-    fontSize: 15,
-    paddingVertical: 0,
-    marginTop: 2,
-  },
-
-  hint: {
-    fontSize: 12,
-    lineHeight: 16,
-  },
-
-  mediaEmptyState: {
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-  },
-  mediaIconCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  avatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
-  },
-  mediaTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  mediaSubtitle: {
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 4,
-  },
-
-  mediaButtonsRow: {
-    flexDirection: "row",
-    marginTop: 14,
-  },
-  primaryMediaBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    marginRight: 8,
-  },
-  primaryMediaBtnText: {
-    color: "#fff",
-    marginLeft: 6,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  secondaryMediaBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 0.7,
-  },
-  secondaryMediaBtnText: {
-    marginLeft: 6,
-    fontSize: 14,
-    fontWeight: "500",
-  },
-
-  mediaHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingTop: 12,
-  },
-  mediaHeaderTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  mediaCounter: {
-    fontSize: 12,
-  },
-
-  mediaButtonsRowCompact: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingBottom: 10,
-    paddingTop: 6,
-  },
-  textLinkBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  textLinkBtnText: {
-    fontSize: 13,
-    fontWeight: "500",
-  },
-
-  imageWrapper: {
-    width: ITEM_SIZE,
-    height: ITEM_SIZE,
-    marginLeft: 14,
-    borderRadius: 12,
     overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
   },
-  image: {
+  avatarImg: {
     width: "100%",
     height: "100%",
   },
-  removeButton: {
+  avatarHint: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  avatarBadge: {
+    position: "absolute",
+    bottom: 6,
+    right: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: HELP_IO_BLUE,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+
+coverBadge: {
+  position: "absolute",
+  bottom: 6,
+  left: 6,
+  backgroundColor: HELP_IO_BLUE,
+  paddingHorizontal: 8,
+  paddingVertical: 4,
+  borderRadius: 12,
+},
+
+coverBadgeText: {
+  color: "#fff",
+  fontSize: 11,
+  fontWeight: "700",
+},
+
+setCoverBtn: {
+  position: "absolute",
+  bottom: 6,
+  left: 6,
+  backgroundColor: "rgba(0,0,0,0.55)",
+  paddingHorizontal: 8,
+  paddingVertical: 4,
+  borderRadius: 12,
+},
+
+coverUnderLabel: {
+  marginTop: 6,
+  fontSize: 12,
+  fontWeight: "700",
+  color: HELP_IO_BLUE,
+  letterSpacing: 0.3,
+},
+
+setCoverText: {
+  color: "#fff",
+  fontSize: 11,
+  fontWeight: "600",
+},
+  
+mediaHeaderRow: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+},
+
+mediaHeaderTitle: {
+  fontSize: 17,
+  fontWeight: "700",
+},
+
+mediaCounter: {
+  fontSize: 13,
+  fontWeight: "600",
+},
+
+mediaActionRowBottom: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginTop: 16,
+},
+
+mediaActionBtnBottom: {
+  flexDirection: "row",
+  alignItems: "center",
+},
+
+mediaActionTextBottom: {
+  marginLeft: 6,
+  fontSize: 14,
+  fontWeight: "700",
+},
+
+
+emptyIconCircle: {
+  width: 64,
+  height: 64,
+  borderRadius: 32,
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: 12,
+},
+
+emptyTitle: {
+  fontSize: 18,          // ↓ from 20
+  fontWeight: "700",
+  marginBottom: 4,
+},
+
+emptySubtitle: {
+  fontSize: 14,          // ↓ from 15
+  textAlign: "center",
+  lineHeight: 19,
+  maxWidth: 240,         // ↓ tighter like iOS
+},
+
+emptyButtonsRow: {
+  flexDirection: "row",
+  marginTop: 14,         // ↓ from 18
+},
+
+primaryEmptyBtn: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 16, // ↓ from 18
+  paddingVertical: 10,   // ↓ from 12
+  borderRadius: 999,
+  marginRight: 8,
+},
+
+secondaryEmptyBtn: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 16,
+  paddingVertical: 10,
+  borderRadius: 999,
+  borderWidth: 1,
+},
+
+
+primaryEmptyText: {
+  marginLeft: 6,
+  fontSize: 15,
+  fontWeight: "600",
+  color: "#fff", // ← makes text readable on blue button
+},
+
+
+secondaryEmptyText: {
+  marginLeft: 6,
+  fontSize: 15,
+  fontWeight: "600",
+},
+
+
+  thumbRail: {
+    width: "100%",
+    marginTop: 12,
+  },
+  thumbHelper: {
+    marginTop: 8,
+    alignSelf: "center",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  thumbWrap: {
+    width: ITEM_SIZE,
+    height: ITEM_SIZE,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    marginRight: 10,
+  },
+  thumbImg: { width: "100%", height: "100%" },
+  thumbRemove: {
     position: "absolute",
     top: 4,
     right: 4,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(0,0,0,0.35)",
     borderRadius: 50,
-    padding: 2,
+    padding: 1,
   },
 
-  bottomBarWrapper: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 90,
-    justifyContent: "center",
-    paddingBottom: Platform.OS === "ios" ? 18 : 10,
+ card: {
+  borderRadius: 24,
+  marginHorizontal: 16,
+  marginBottom: 22,
+  paddingHorizontal: 14,
+  paddingVertical: 6,
+},
+
+  sectionHeader: {
+    marginLeft: 22,
+    marginBottom: 6,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
-  bottomBarContent: {
-    paddingHorizontal: 18,
-  },
-  publishButton: {
-    borderRadius: 999,
-    paddingVertical: 14,
+
+  fieldRow: { paddingVertical: 12 },
+  fieldTopRow: {
+    flexDirection: "row",
     alignItems: "center",
-    shadowColor: HELP_IO_BLUE,
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 7 },
-    shadowRadius: 12,
-    elevation: 3,
+    justifyContent: "space-between",
   },
-  publishText: {
-    color: "#fff",
+
+  label: {
+    fontSize: 13,
+    marginBottom: 6,
+    fontWeight: "600",
+  },
+
+  input: {
+    fontSize: 17,
+    fontWeight: "500",
+    paddingVertical: 4,
+  },
+  inputArea: {
+    minHeight: 70,
+    textAlignVertical: "top",
+  },
+
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(0,0,0,0.12)",
+  },
+
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  currency: {
+    fontSize: 17,
+    fontWeight: "700",
+    marginRight: 6,
+  },
+  helper: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+  },
+  locationText: {
+    marginLeft: 8,
     fontSize: 17,
     fontWeight: "600",
+    flexShrink: 1,
+  },
+  locationEdit: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginLeft: 12,
+  },
+  locationSub: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+
+  bottomBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 95,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+  },
+  primaryBtn: {
+    height: 52,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  primaryBtnText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+
+  deleteButton: {
+    marginTop: 8,
+    marginHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,59,48,0.12)",
+    marginBottom: 26,
+  },
+  deleteText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FF3B30",
   },
 });

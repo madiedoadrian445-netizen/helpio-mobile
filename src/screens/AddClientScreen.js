@@ -46,19 +46,21 @@ const Field = memo(function Field({
   );
 });
 
-export default function AddClientScreen({ navigation }) {
+export default function AddClientScreen({ navigation, route }) {
   const { darkMode, theme } = useTheme();
 const user = useAuthStore((state) => state.user);
 const token = useAuthStore((state) => state.token);
+const editingClient = route?.params?.client || null;
+const isEditMode = !!editingClient;
 
 
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [company, setCompany] = useState("");
-  const [address, setAddress] = useState("");
-  const [notes, setNotes] = useState("");
-  const [loading, setLoading] = useState(false);
+ const [fullName, setFullName] = useState(editingClient?.name || "");
+const [phone, setPhone] = useState(editingClient?.phone || "");
+const [email, setEmail] = useState(editingClient?.email || "");
+const [company, setCompany] = useState(editingClient?.company || "");
+const [address, setAddress] = useState(editingClient?.address || "");
+const [notes, setNotes] = useState(editingClient?.notes || "");
+const [loading, setLoading] = useState(false);
 
   /* -------------------------
        DEBUG TOKEN ON MOUNT
@@ -74,6 +76,29 @@ const isValidEmail = (value) => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 };
 
+const handleDelete = () => {
+  if (!editingClient?._id) return;
+
+  Alert.alert(
+    "Delete Client",
+    "This action cannot be undone.",
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await api.delete(`/api/customers/${editingClient._id}`);
+            navigation.pop(2); // back to Clients list
+          } catch (err) {
+            Alert.alert("Error", "Failed to delete client.");
+          }
+        },
+      },
+    ]
+  );
+};
 
 
   /* -------------------------
@@ -84,6 +109,8 @@ const isValidEmail = (value) => {
   Alert.alert("Name required", "Client name must be at least 2 characters");
   return;
 }
+
+
 
 if (!isValidEmail(email)) {
   Alert.alert("Invalid email", "Please enter a valid email address");
@@ -107,7 +134,10 @@ if (!isValidEmail(email)) {
       console.log("📤 Sending client payload:", payload);
 
       // 🔥 FIXED — using correct endpoint + axios wrapper with auto-token
-      const res = await api.post("/api/customers", payload);
+     const res = isEditMode
+  ? await api.put(`/api/customers/${editingClient._id}`, payload)
+  : await api.post("/api/customers", payload);
+
 
       console.log("📥 Add Client Response:", res.data);
 
@@ -116,11 +146,12 @@ if (!isValidEmail(email)) {
         return;
       }
 
-      // 🔄 Refresh CRM list when returning
-      navigation.goBack();
-      setTimeout(() => {
-        navigation.navigate("ClientsScreen", { refresh: true });
-      }, 60);
+      // ✅ Always return to Clients list after save
+// ✅ Go back to the existing Clients screen
+navigation.pop();
+
+
+
 
     } catch (err) {
       console.log("❌ Add Client Error:", err.response?.data || err);
@@ -143,7 +174,10 @@ if (!isValidEmail(email)) {
         </TouchableOpacity>
 
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>New Client</Text>
+         <Text style={[styles.headerTitle, { color: theme.text }]}>
+  {isEditMode ? "Edit Client" : "New Client"}
+</Text>
+
         </View>
 
 
@@ -271,8 +305,28 @@ if (!isValidEmail(email)) {
               darkMode={darkMode}
             />
           </View>
+
+{isEditMode && (
+  <TouchableOpacity
+    onPress={handleDelete}
+    style={styles.deleteButton}
+  >
+    <Ionicons
+      name="trash-outline"
+      size={18}
+      color="#FF3B30"
+      style={{ marginRight: 6 }}
+    />
+    <Text style={styles.deleteText}>Delete Client</Text>
+  </TouchableOpacity>
+)}
+
+
+          
         </ScrollView>
       </KeyboardAvoidingView>
+
+
 
       {/* BOTTOM SAVE BUTTON */}
       <BlurView intensity={50} tint={theme.blurTint} style={styles.bottomBar}>
@@ -290,7 +344,10 @@ if (!isValidEmail(email)) {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.saveText}>Save Client</Text>
+           <Text style={styles.saveText}>
+  {isEditMode ? "Save Changes" : "Save Client"}
+</Text>
+
           )}
         </TouchableOpacity>
       </BlurView>
@@ -334,7 +391,7 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    borderRadius: 14,
+    borderRadius: 24,
     marginHorizontal: 16,
     marginBottom: 22,
     paddingHorizontal: 14,
@@ -383,10 +440,29 @@ const styles = StyleSheet.create({
 
   saveButton: {
     height: 52,
-    borderRadius: 12,
+    borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
   },
+
+deleteButton: {
+  marginTop: 30,
+  marginHorizontal: 16,
+  paddingVertical: 14,
+  borderRadius: 18,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "rgba(255,59,48,0.12)",
+},
+
+deleteText: {
+  fontSize: 15,
+  fontWeight: "700",
+  color: "#FF3B30",
+},
+
+
 
   saveText: {
     color: "#fff",

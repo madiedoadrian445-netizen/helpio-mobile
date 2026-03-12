@@ -1,21 +1,19 @@
-// src/screens/AllServicesScreen.js
-import React, { useEffect, useState } from "react";
+//src/screens/AllServicesScreen.js
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
-  ScrollView,
   StyleSheet,
   ActivityIndicator,
   Image,
   TouchableOpacity,
-  RefreshControl,
-  SafeAreaView,
+  Platform,
+  Alert,
+  Animated,
   Modal,
   TextInput,
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
-  Platform,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -23,36 +21,23 @@ import HeroHeader from "../components/HeroHeader";
 import { useTheme } from "../ThemeContext";
 import { api } from "../config/api";
 import useAuthStore from "../store/auth";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Haptics from "expo-haptics";
+import { FlatList } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import ServiceCardSkeleton from "../components/ServiceCardSkeleton";
+import { DeviceEventEmitter } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import FeedStars from "../components/FeedStars";
+
 
 
 const HELP_IO_BLUE = "#00A6FF";
 
 // Featured placeholders
-const featuredPosts = [
-  {
-    _id: "featured1",
-    title: "Veloz Contractors",
-    description: "Luxury Bathroom Remodel – South Beach, Miami",
-    price: 1500,
-    photos: [require("../../assets/images/veloz_contractors.jpg")],
-  },
-  {
-    _id: "featured2",
-    title: "Miami Jetski Shop",
-    description: "Yamaha 1.8 HO Remanufactured Long Block – Ready to Ship",
-    price: 4200,
-    photos: [require("../../assets/images/miami_jetski.jpg")],
-  },
-  {
-    _id: "featured3",
-    title: "Redline Underground Cars",
-    description: "Exotic Car Customization – Diamond Wrap Collection",
-    price: 2500,
-    photos: [require("../../assets/images/redline_cars.jpg")],
-  },
-];
 
-export default function AllServicesScreen({ navigation }) {
+export default function AllServicesScreen({ navigation, route }) {
+
   const { darkMode, theme } = useTheme();
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -65,97 +50,345 @@ export default function AllServicesScreen({ navigation }) {
   const [maxPrice, setMaxPrice] = useState("");
   const [sortOrder, setSortOrder] = useState(null);
   const user = useAuthStore((state) => state.user);
+  const provider = useAuthStore((state) => state.provider);
+const [activeFeed, setActiveFeed] = useState("trending");
+const [page, setPage] = useState(1);
+const [hasMore, setHasMore] = useState(true);
+const [latitude, setLatitude] = useState(null);
+const [longitude, setLongitude] = useState(null);
 
- 
+
+
+
+const isFetchingRef = useRef(false);
+const pullY = useRef(new Animated.Value(0)).current;
+const isRefreshingRef = useRef(false);
+const armedRef = useRef(false);
+const cachedCoordsRef = useRef(null);
+const resHasMoreRef = useRef(true);
+const flatListRef = useRef(null);
+const lastHapticYRef = useRef(0);
+const lastHapticTimeRef = useRef(0);
+const endReachedDuringMomentum = useRef(false);
+const isMomentumScrollingRef = useRef(false);
+const isFocused = useIsFocused();
+const [zip, setZip] = useState("33101");
+
+const [radius, setRadius] = useState(15);
+
+
+const scrollToTop = () => {
+  flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+};
+
+useEffect(() => {
+  const sub = DeviceEventEmitter.addListener("HELPIO_HOME_TAP", (payload) => {
+    if (!isFocused) return; // ✅ only when Home screen is active
+
+    if (payload?.type === "double") {
+      scrollToTop();
+      triggerHandshakeRefresh();
+      return;
+    }
+
+    scrollToTop();
+  });
+
+  return () => sub.remove();
+}, [isFocused]);
+
+// load saved ZIP
+useEffect(() => {
+  (async () => {
+    const savedZip = await AsyncStorage.getItem("user_zip");
+    if (savedZip) setZip(savedZip);
+  })();
+}, []);
+
+// save ZIP
+
+
+
+
+const resolveUserCoordinates = async () => {
+  if (latitude !== null && longitude !== null) {
+    return { lat: latitude, lng: longitude };
+  }
+
+  return { lat: 25.7617, lng: -80.1918 };
+};
+const handleFeedLocationChange = async (location) => {
+  const { lat, lng, zip: selectedZip, radius: selectedRadius } = location;
+
+  setLatitude(lat);
+  setLongitude(lng);
+  setZip(selectedZip || zip);
+  setRadius(selectedRadius || radius);
+
+  await AsyncStorage.setItem("user_zip", selectedZip || "");
+  await AsyncStorage.setItem("user_lat", String(lat));
+  await AsyncStorage.setItem("user_lng", String(lng));
+
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+  cachedCoordsRef.current = null;
+  setHasMore(true);
+  setPage(1);
+ setLoading(true);
+setServices([]);
+
+ fetchServices(1, true, true, lat, lng);
+};
   /* ============================================================
       FETCH LISTINGS FROM BACKEND
   ============================================================ */
-  const fetchServices = async () => {
+ const PAGE_SIZE = 20;
+
+const fetchServices = async (
+  pageToLoad = 1,
+  replace = false,
+  forceRefresh = false,
+  overrideLat = null,
+  overrideLng = null,
+  overrideSearch = null   // 👈 ADD THIS
+) => {
+
+ 
+
+  if (isFetchingRef.current) return;
+ if (!replace && !resHasMoreRef.current) return;
+  isFetchingRef.current = true;
+
+  try {
+    // 🔥 Resolve real user GPS location
+const coords =
+  overrideLat !== null && overrideLng !== null
+    ? { lat: overrideLat, lng: overrideLng }
+    : await resolveUserCoordinates();
+
+const { lat, lng } = coords;
+
+   const params = new URLSearchParams({
+  lat,
+  lng,
+  radius, // 🔥 ADD THIS
+  page: pageToLoad,
+  pageSize: PAGE_SIZE,
+});
+
+if (forceRefresh) {
+  params.append("refresh", "true");
+}
+
+const effectiveSearch =
+  overrideSearch !== null ? overrideSearch : search;
+
+if (effectiveSearch.trim()) {
+  params.append("search", effectiveSearch.trim());
+}
+
+const res = await api.get(`/api/listings/feed?${params.toString()}`);
+
+
+
+    const incoming = res.data?.items || [];
+    const total = res.data?.total ?? 0;
+
+  
+    setPage(pageToLoad);
+
+    // determine if more pages exist
+  setServices((prev) => (replace ? incoming : [...prev, ...incoming]));
+
+const backendHasMore = res.data?.hasMore ?? false;
+
+setHasMore(backendHasMore);
+resHasMoreRef.current = backendHasMore;
+  } catch (e) {
+    console.log("❌ Fetch V1 feed error:", e);
+  } finally {
+    isFetchingRef.current = false;
+    setLoading(false);
+    setRefreshing(false);
+  }
+};
+
+useEffect(() => {
+  const init = async () => {
+    let lat = 25.7617;
+    let lng = -80.1918;
+
     try {
-      const response = await api.get("/api/listings");
+      const savedLat = await AsyncStorage.getItem("user_lat");
+      const savedLng = await AsyncStorage.getItem("user_lng");
 
-      console.log("🔥 RAW SERVICE RESPONSE:", JSON.stringify(response, null, 2));
+      if (savedLat && savedLng) {
+        lat = parseFloat(savedLat);
+        lng = parseFloat(savedLng);
 
-      const incoming =
-        response?.data?.listings ??
-        response?.data ??
-        [];
+        setLatitude(lat);
+        setLongitude(lng);
+      }
+    } catch (e) {}
 
-      setServices(Array.isArray(incoming) ? incoming : []);
-    } catch (err) {
-      console.log("❌ Fetch services error:", err);
-      setServices([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    // pass directly instead of waiting for state
+    fetchServices(1, true, true, lat, lng);
   };
 
-  useEffect(() => {
-    fetchServices();
-  }, []);
+  init();
+}, []);
+useEffect(() => {
+  if (!isFocused) return;
 
-  const onRefresh = () => {
+  const q = route?.params?.searchQuery;
+
+  if (typeof q === "string") {
+    setSearch(q);
+
+    setHasMore(true);
+    setPage(1);
+    setLoading(true);
+    setServices([]);
+
+    fetchServices(1, true, false, null, null, q);
+
+    // 🔥 CLEAR PARAM AFTER USING IT
+    navigation.setParams({ searchQuery: undefined });
+  }
+}, [isFocused, route?.params?.searchQuery]);
+
+
+
+ const isSearching = search.trim().length > 0;
+
+useEffect(() => {
+  if (isSearching) {
+    setPage(1);
+    endReachedDuringMomentum.current = false;
+  }
+}, [search]);
+
+ const onRefresh = () => {
+  if (isFetchingRef.current) return;
+  setRefreshing(true);
+  setHasMore(true);
+  setPage(1);
+  fetchServices(1, true);
+};
+
+
+
+const triggerHandshakeRefresh = () => {
+  if (isRefreshingRef.current) return;
+
+  isRefreshingRef.current = true;
+  armedRef.current = false;
+
+
+
+
+  Animated.sequence([
+    Animated.timing(pullY, {
+      toValue: -120,
+      duration: 180,
+      useNativeDriver: true,
+    }),
+    Animated.sequence([
+      Animated.timing(pullY, { toValue: -135, duration: 90, useNativeDriver: true }),
+      Animated.timing(pullY, { toValue: -120, duration: 90, useNativeDriver: true }),
+      Animated.timing(pullY, { toValue: -135, duration: 90, useNativeDriver: true }),
+      Animated.timing(pullY, { toValue: -120, duration: 90, useNativeDriver: true }),
+    ]),
+  ]).start(async () => {
     setRefreshing(true);
-    fetchServices();
-  };
+ await fetchServices(1, true, true); // 🔥 forces new V1 session seed
+
+
+
+    Animated.timing(pullY, {
+      toValue: 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => {
+  isRefreshingRef.current = false;
+
+
+});
+
+  });
+};
+
 
   /* ============================================================
       NORMALIZE BACKEND LISTINGS — WITH FIX
   ============================================================ */
-  const normalizedServices = React.useMemo(() => {
-    return services.map((s) => ({
-      _id: s._id,
-      title: s.title || "",
-      description: s.description || "",
-      category: s.category || "",
-      price: Number(s.price) || 0,
-      location: s.location || "Miami",
+ const normalizedServices = React.useMemo(() => {
+  return services.map((s) => ({
+    _id: s._id,
+    title: s.title || "",
+    description: s.description || "",
+    category: s.category || "",
+    price: Number(s.price) || 0,
+    distanceMiles: Number(s.distanceMiles ?? 9999),
 
-      // 🔥 backend `images` → frontend `photos`
-      photos: Array.isArray(s.photos)
-        ? s.photos
-        : Array.isArray(s.images)
-        ? s.images
-        : [],
+    location:
+      typeof s.location === "object" && s.location !== null
+        ? s.location
+        : { city: "Miami", state: "FL" },
 
-      provider: s.provider || null,
-    }));
-  }, [services]);
+    businessName:
+      typeof s.businessName === "string" && s.businessName.trim()
+        ? s.businessName.trim()
+        : undefined,
+
+    photos: (() => {
+      if (Array.isArray(s.photos) && s.photos.length > 0) {
+        return s.photos;
+      }
+
+      if (typeof s.photos === "string") {
+        return [s.photos];
+      }
+
+      if (Array.isArray(s.images) && s.images.length > 0) {
+        return s.images;
+      }
+
+      if (typeof s.images === "string") {
+        return [s.images];
+      }
+
+      if (Array.isArray(s.media) && s.media.length > 0) {
+        return s.media.map((m) => m?.url || m?.uri || m);
+      }
+
+      return [];
+    })(),
+
+    provider: s.provider || null,
+   rating: Number(s.rating) || 0,
+reviewCount: Number(s.ratingCount) || 0,
+  }));
+}, [services]);
 
   /* ============================================================
       LOCATION FORMATTER (unchanged)
   ============================================================ */
-  const formatLocation = (name = "") => {
-    if (!name) return "";
-    name = name.trim();
-    if (name.length <= 18) return name;
+const formatLocation = (loc) => {
+  if (!loc) return "Location";
 
-    const map = {
-      north: "N.",
-      south: "S.",
-      east: "E.",
-      west: "W.",
-      northeast: "NE",
-      northwest: "NW",
-      southeast: "SE",
-      southwest: "SW",
-    };
+  // New structured object
+  if (typeof loc === "object") {
+    if (loc.city && loc.state) return `${loc.city}, ${loc.state}`;
+    if (loc.zip) return `ZIP ${loc.zip}`;
+    return "Location";
+  }
 
-    let words = name.toLowerCase().split(" ");
-    words = words.map((w) => map[w] || w);
+  // Legacy string fallback
+  if (typeof loc === "string") return loc.trim();
 
-    let rebuilt = words
-      .map((w) => (w.length > 10 ? w.slice(0, 8) + "." : w))
-      .join(" ");
-
-    if (rebuilt.length > 22) rebuilt = rebuilt.slice(0, 22) + "…";
-
-    return rebuilt
-      .split(" ")
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ");
-  };
+  return "Location";
+};
 
   /* ============================================================
       FILTERS
@@ -163,11 +396,8 @@ export default function AllServicesScreen({ navigation }) {
   const applyFilters = () => {
     let filtered = [...normalizedServices];
 
-    if (localActive) {
-      filtered = filtered.filter((s) =>
-        s.location?.toLowerCase().includes("miami")
-      );
-    }
+   
+
 
     if (minPrice && maxPrice) {
       filtered = filtered.filter(
@@ -179,236 +409,585 @@ export default function AllServicesScreen({ navigation }) {
 
     if (sortOrder === "asc") filtered.sort((a, b) => a.price - b.price);
     if (sortOrder === "desc") filtered.sort((a, b) => b.price - a.price);
-
-    return filtered.filter((item) => {
-      const q = search.toLowerCase().trim();
-      if (!q) return true;
-      return JSON.stringify(item).toLowerCase().includes(q);
-    });
+return filtered;
   };
 
-  const filtered = React.useMemo(
-    () => applyFilters(),
-    [search, services, localActive, minPrice, maxPrice, sortOrder]
-  );
+ const filtered = React.useMemo(
+  () => applyFilters(),
+  [normalizedServices, minPrice, maxPrice, sortOrder]
+);
 
-  const combinedServices = [...featuredPosts, ...filtered];
-  const hasQuery = search.trim().length > 0;
-  const listToShow = hasQuery ? filtered : combinedServices;
 
-  /* ============================================================
-      RENDER
-  ============================================================ */
+  
+const feedAlgorithms = {
+  choice: () => filtered.filter((s) => s.provider?.isChoice),
+  verified: () => filtered.filter((s) => s.provider?.verified),
+  trending: () => filtered, // no sorting here
+};
+
+
+const activeServices =
+  feedAlgorithms[activeFeed]?.() ?? feedAlgorithms.trending();
+
+
+// ⭐ FIRST LOAD SKELETON (Apple-style)
+if (loading) {
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
-      {/* TOP BAR */}
-      <BlurView intensity={40} tint={theme.blurTint} style={styles.topBlur}>
-        <View style={styles.headerContainer}>
-          <Text
-            style={[
-              styles.headerTitleBlue,
-              { color: HELP_IO_BLUE, fontSize: 20.5 },
-            ]}
-          >
-            BusinessPlace
-          </Text>
-
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate("Notifications")}
-            style={styles.iconWrap}
-          >
-            <BlurView intensity={40} tint={theme.blurTint} style={styles.blurCircle}>
-              <Ionicons
-                name="notifications-outline"
-                size={20}
-                color={HELP_IO_BLUE}
-              />
-              <View style={styles.badgeDot} />
-            </BlurView>
-          </TouchableOpacity>
-        </View>
-      </BlurView>
-
-      {/* MAIN SCROLL */}
-      <ScrollView
-        style={[styles.container, { backgroundColor: theme.background }]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={HELP_IO_BLUE}
-          />
-        }
-        contentContainerStyle={{ paddingTop: Platform.OS === "ios" ? 10 : 8 }}
+    <View style={{ flex: 1, paddingTop: 120, paddingHorizontal: 8 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+        }}
       >
-        {/* HERO HEADER */}
-        <View style={{ marginTop: -8 }}>
-          <HeroHeader
-            navigation={navigation}
-            search={search}
-            setSearch={setSearch}
-            activeFeed="all"
-            onFeedChange={(key) => {
-              if (key === "choice") navigation.navigate("HelpiosChoice");
-              if (key === "verified") navigation.navigate("HelpioVerified");
-              if (key === "trending") navigation.navigate("TrendingNow");
-              if (key === "all") navigation.navigate("Home");
-            }}
-            onLocalPress={() => setLocalActive(!localActive)}
-            onPricePress={() => setPriceVisible(true)}
-            onSortPress={() => setSortVisible(true)}
-          />
-        </View>
-
-        {/* SECTION TITLE */}
-        <View style={{ marginTop: 8 }}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Trending Now
-          </Text>
-
-          {/* LOADING */}
-          {loading ? (
-            <ActivityIndicator
-              size="large"
-              color={HELP_IO_BLUE}
-              style={{ marginTop: 40 }}
-            />
-          ) : listToShow.length === 0 ? (
-            <Text style={[styles.empty, { color: theme.subtleText }]}>
-              No services found.
-            </Text>
-          ) : (
-            <View style={styles.grid}>
-              {listToShow.map((service) => (
-                <TouchableOpacity
-                  key={service._id}
-                  style={[
-                    styles.card,
-                    {
-                      backgroundColor: theme.card,
-                      shadowOpacity: darkMode ? 0 : 0.08,
-                    },
-                  ]}
-                 onPress={() =>
-  navigation.navigate("ServiceDetailScreen", {
-    service,
-    viewer: {
-      _id: user?._id,   // ✅ customerId flows correctly now
-    },
-  })
+        {Array.from({ length: 6 }).map((_, i) => (
+          <ServiceCardSkeleton key={i} />
+        ))}
+      </View>
+    </View>
+  );
 }
 
-                >
-                  {/* IMAGE */}
-                  {service.photos?.length > 0 ? (
-                    typeof service.photos[0] === "number" ? (
-                      <Image
-                        source={service.photos[0]}
-                        style={styles.image}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <Image
-                        source={{ uri: service.photos[0] }}
-                        style={styles.image}
-                      />
-                    )
-                  ) : (
-                    <View style={styles.noImage}>
-                      <Ionicons name="image-outline" size={30} color="#ccc" />
-                    </View>
-                  )}
 
-                  {/* CONTENT */}
-                  <View style={styles.cardContent}>
-                    <View style={styles.titleRow}>
-                      <Text
-                        numberOfLines={1}
-                        style={[styles.title, { color: theme.text }]}
-                      >
-                        {service.title}
-                      </Text>
 
-                      {localActive && (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={16}
-                          color={HELP_IO_BLUE}
-                        />
-                      )}
-                    </View>
+ /* ============================================================
+   RENDER
+============================================================ */
+return (
+  <View style={styles.safe}>
+{/* GLOBAL ATMOSPHERIC BACKGROUND (SOURCE OF TRUTH) */}
+<LinearGradient
+  colors={[
+   "rgba(4, 75, 168, 1)",
+    "rgba(232,236,241,0.95)",
+    "rgba(240,242,245,0.6)",
+    "rgba(246,247,248,0.0)",
+  ]}
+  start={{ x: 0.5, y: 0 }}
+  end={{ x: 0.5, y: 1 }}
+  style={styles.tabsGradient}
+/>
 
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.desc, { color: theme.subtleText }]}
-                    >
-                      {service.description}
-                    </Text>
+<LinearGradient
+  colors={[
+    "rgba(230,235,242,0.95)", // top atmospheric gray (this is the key)
+    "rgba(235,239,245,0.70)",
+    "rgba(240,243,247,0.35)",
+    "rgba(246,247,248,0.00)",
+  ]}
+  start={{ x: 0.5, y: 0 }}
+  end={{ x: 0.5, y: 1 }}
+  style={styles.tabsGradient}
+/>
 
-                    {/* PRICE + LOCATION */}
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        marginTop: 4,
-                        position: "relative",
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.price,
-                          { color: HELP_IO_BLUE, marginRight: 8 },
-                        ]}
-                      >
-                        {`$${service.price}`}
-                      </Text>
 
-                      {/* LOCATION PIN */}
-                      <Ionicons
-                        name="location"
-                        size={12}
-                        color={HELP_IO_BLUE}
-                        style={{
-                          position: "absolute",
-                          right: 45,
-                          top: 2,
-                        }}
-                      />
 
-                      {/* ⭐ FIXED LOCATION TEXT — 100% SAFE, EXACT SAME LAYOUT */}
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          fontSize: 14,
-                          fontWeight: "600",
-                          color: HELP_IO_BLUE,
-                          marginLeft: 105,
-                        }}
-                      >
-                        {typeof service.location === "string"
-                          ? service.location
-                          : `${service.location?.city || "Miami"}, ${service.location?.state || "FL"}`}
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-      </ScrollView>
+    {/* TOP BAR */}
+    <BlurView intensity={40} tint={theme.blurTint} style={styles.topBlur}>
+     
+     
+     <View style={styles.headerContainer}>
+  <Text
+    style={[
+      styles.headerTitleBlue,
+      { color: HELP_IO_BLUE, fontSize: 20.5 },
+    ]}
+  >
+    BusinessPlace
+  </Text>
+
+  {/* RIGHT SIDE */}
+  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+    
+    {/* ZIP CHIP */}
+    <TouchableOpacity
+      activeOpacity={0.8}
+     onPress={() =>
+  navigation.navigate("LocationPicker", {
+    onSelect: handleFeedLocationChange,
+  })
+}
+      style={styles.zipChipWrap}
+    >
+      <BlurView intensity={40} tint={theme.blurTint} style={styles.zipChip}>
+        <Ionicons name="location-sharp" size={14} color={HELP_IO_BLUE} />
+     <Text style={styles.zipText}>
+  {zip || "Miami"}
+</Text>
+        <Ionicons name="chevron-down" size={12} color={HELP_IO_BLUE} />
+      </BlurView>
+    </TouchableOpacity>
+
+
+
+{/* HAMBURGER MENU */}
+<TouchableOpacity
+  activeOpacity={0.7}
+  onPress={() => navigation.openDrawer?.() || navigation.navigate("MenuScreen")}
+  style={styles.iconWrap}
+>
+  <BlurView intensity={40} tint={theme.blurTint} style={styles.blurCircle}>
+   <Ionicons name="menu" size={20} color={HELP_IO_BLUE} />
+  </BlurView>
+</TouchableOpacity>
+
+
+
+    {/* NOTIFICATIONS */}
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={() => navigation.navigate("Notifications")}
+      style={styles.iconWrap}
+    >
+      <BlurView intensity={40} tint={theme.blurTint} style={styles.blurCircle}>
+        <Ionicons name="notifications-outline" size={20} color={HELP_IO_BLUE} />
+        <View style={styles.badgeDot} />
+      </BlurView>
+    </TouchableOpacity>
+
+  </View>
+</View>
+       
+    
+    </BlurView>
+
+{/* HANDSHAKE REFRESH OVERLAY */}
+<Animated.View
+  pointerEvents="none"
+  style={{
+    position: "absolute",
+    top: Platform.OS === "ios" ? 90 : 75,
+    left: 0,
+    right: 0,
+    height: 80,
+    zIndex: 30,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    opacity: pullY.interpolate({
+      inputRange: [-120, -60, 0],
+      outputRange: [1, 0.5, 0],
+      extrapolate: "clamp",
+    }),
+  }}
+>
+  <Animated.Image
+    source={require("../assets/refresh/hand_left.png")}
+    style={{
+      width: 42,
+      height: 42,
+      transform: [
+        {
+          translateX: pullY.interpolate({
+            inputRange: [-120, 0],
+            outputRange: [0, -34],
+            extrapolate: "clamp",
+          }),
+        },
+        { translateY: 2 },
+      ],
+    }}
+  />
+
+  <Animated.Image
+    source={require("../assets/refresh/hand_right.png")}
+    style={{
+      width: 42,
+      height: 42,
+      marginLeft: -8,
+      transform: [
+        {
+          translateX: pullY.interpolate({
+            inputRange: [-120, 0],
+            outputRange: [0, 34],
+            extrapolate: "clamp",
+          }),
+        },
+        { translateY: -1 },
+      ],
+    }}
+  />
+</Animated.View>
+
+
+
+
+ <FlatList
+  ref={flatListRef}
+  data={activeServices}
+ keyExtractor={(item) => String(item._id)}
+  numColumns={2}
+  
+
+ListEmptyComponent={
+  !loading ? (
+    <View style={{ alignItems: "center", marginTop: 120, paddingHorizontal: 40 }}>
+      
+      <Ionicons name="search-outline" size={48} color="#C7C7CC" />
+
+      <Text
+        style={{
+          marginTop: 14,
+          fontSize: 18,
+          fontWeight: "700",
+          color: theme.text,
+          textAlign: "center",
+        }}
+      >
+        No services nearby yet
+      </Text>
+
+      <Text
+        style={{
+          marginTop: 6,
+          fontSize: 14,
+          color: theme.subtleText,
+          textAlign: "center",
+          lineHeight: 20,
+        }}
+      >
+        We’re carefully curating top providers in your area.
+        {"\n"}
+        Try another ZIP or check back soon.
+      </Text>
+    </View>
+  ) : null
+}
+
+
+
+ListHeaderComponent={
+  <>
+  
+  <HeroHeader
+    search={search}
+    setSearch={setSearch}
+    activeFeed={activeFeed}
+    onFeedChange={(key) => setActiveFeed(key)}
+    onLocalPress={() => setLocalActive(!localActive)}
+    onPricePress={() => setPriceVisible(true)}
+    onSortPress={() => setSortVisible(true)}
+  />
+
+
+
+
+   <View style={styles.trendingHeaderRow}>
+  <Text style={[styles.sectionTitle, { color: theme.text }]}>
+    {activeFeed === "choice"
+      ? "Helpio’s Choice"
+      : activeFeed === "verified"
+      ? "Helpio Verified"
+      : "Trending Now"}
+  </Text>
+
+{/* Inline compact search */}
+<View style={styles.inlineSearchWrap}>
+  <BlurView intensity={40} tint="light" style={styles.inlineBlur} />
+
+  <TouchableOpacity
+    activeOpacity={0.85}
+    onPress={() => navigation.navigate("SearchMarketplace")}
+    style={styles.inlineContent}
+  >
+    <Ionicons
+      name="search"
+      size={16}
+      color="#6B7280"
+      style={{ marginRight: 8 }}
+    />
+
+    <Text
+      numberOfLines={1}
+      ellipsizeMode="tail"
+      style={[
+        styles.inlineSearchText,
+        { color: search.trim() ? theme.text : "#9ca3afcb" },
+      ]}
+    >
+      {search.trim() ? search : "Search"}
+    </Text>
+  </TouchableOpacity>
+
+  {search.trim().length > 0 && (
+    <TouchableOpacity
+     onPress={() => {
+  setSearch("");
+
+  setHasMore(true);
+  setPage(1);
+  setLoading(true);
+  setServices([]);
+
+  fetchServices(1, true, true, null, null, "");
+  }}
+  style={styles.clearInlineBtn}
+  activeOpacity={0.7}
+  hitSlop={{ top: 14, bottom: 14, left: 12, right: 20 }}
+>
+  <Ionicons name="close" size={16} color="#0B0B0F" />
+</TouchableOpacity>
+  )}
+</View>
+
+</View>
+
+  </>
+}
+
+
+
+contentContainerStyle={{
+  paddingTop: Platform.OS === "ios" ? 70 : 76,   // 👈 pulls everything up
+  paddingBottom: 140,
+}}
+
+
+
+
+
+columnWrapperStyle={{
+  justifyContent: "space-between",
+  paddingHorizontal: 0, // ❌ remove completely
+}}
+
+
+  scrollEventThrottle={16}
+  showsVerticalScrollIndicator={false}
+  bounces
+
+  onScroll={(e) => {
+  const y = e.nativeEvent.contentOffset.y;
+
+  // 🔒 Passive mirror only — does NOT control scroll
+  pullY.setValue(Math.min(0, y));
+
+
+  const now = Date.now();
+
+  if (isRefreshingRef.current) return;
+  if (now - lastHapticTimeRef.current < 80) return;
+
+  if (y < -20 && y > -60 && y < lastHapticYRef.current - 8) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    lastHapticTimeRef.current = now;
+    lastHapticYRef.current = y;
+  }
+
+  if (y <= -60 && y > -110 && y < lastHapticYRef.current - 10) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    lastHapticTimeRef.current = now;
+    lastHapticYRef.current = y;
+  }
+
+  if (y <= -110 && !armedRef.current) {
+    armedRef.current = true;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  }
+
+  if (y > -40) {
+    armedRef.current = false;
+    lastHapticYRef.current = 0;
+  }
+}}
+
+  onScrollEndDrag={() => {
+  if (
+    armedRef.current &&
+    !isRefreshingRef.current &&
+    !isMomentumScrollingRef.current
+  ) {
+    triggerHandshakeRefresh();
+  }
+}}
+
+
+  onMomentumScrollBegin={() => {
+  isMomentumScrollingRef.current = true;
+  endReachedDuringMomentum.current = false;
+}}
+
+onMomentumScrollEnd={() => {
+  isMomentumScrollingRef.current = false;
+}}
+
+
+
+onEndReached={() => {
+  if (
+    !endReachedDuringMomentum.current &&
+    resHasMoreRef.current &&
+    !isFetchingRef.current
+  ) {
+    endReachedDuringMomentum.current = true;
+    fetchServices(page + 1);
+  }
+}}
+
+onEndReachedThreshold={0.7}
+
+ListFooterComponent={
+  resHasMoreRef.current ? (
+    <ActivityIndicator
+      size="small"
+      color={HELP_IO_BLUE}
+      style={{ paddingVertical: 24 }}
+    />
+  ) : null
+}
+
+
+
+
+
+  renderItem={({ item: service }) => {
+ 
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.card,
+        {
+          backgroundColor: darkMode
+            ? "rgba(28,28,32,0.65)"
+            : "rgba(255,255,255,0.65)",
+          shadowOpacity: darkMode ? 0 : 0.08,
+        },
+      ]}
+      onPress={() => {
+  const myProviderId = user?.providerId;
+
+  const listingProviderId =
+    typeof service.provider === "string"
+      ? service.provider
+      : service.provider?._id;
+
+  const isOwnListing =
+    !!myProviderId &&
+    !!listingProviderId &&
+    String(myProviderId) === String(listingProviderId);
+
+  navigation.navigate("ServiceDetailScreen", {
+    service,
+    viewer: { _id: user?._id },
+    isOwnListing,
+  });
+}}
+    >
+    {(() => {
+  
+  if (!service.photos || service.photos.length === 0) {
+  console.log("SEED ISSUE:", service._id, service);
+}
+  const firstPhoto = service.photos?.[0];
+  let imageUrl = null;
+
+const buildUrl = (path) => {
+  if (!path || typeof path !== "string") return null;
+
+  const trimmed = path.trim();
+
+  // Already full URL
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Already file path
+  if (trimmed.startsWith("file://")) {
+    return trimmed;
+  }
+
+  const base = api.defaults.baseURL?.replace(/\/$/, "") || "";
+  const cleanPath = trimmed.replace(/^\//, "");
+
+  return `${base}/${cleanPath}`;
+};
+  if (typeof firstPhoto === "string") {
+    imageUrl = buildUrl(firstPhoto);
+  } else if (typeof firstPhoto?.url === "string") {
+    imageUrl = buildUrl(firstPhoto.url);
+  } else if (typeof firstPhoto?.uri === "string") {
+    imageUrl = buildUrl(firstPhoto.uri);
+  }
+
+  if (!imageUrl) {
+    return (
+      <View style={styles.noImage}>
+        <Ionicons name="image-outline" size={30} color="#ccc" />
+      </View>
+    );
+  }
+
+console.log("IMAGE URL:", imageUrl);
+
+  return (
+    <Image
+      source={{ uri: imageUrl }}
+      style={styles.image}
+      resizeMode="cover"
+    />
+  );
+})()}
+  
+  
+
+
+      <View style={styles.cardContent}>
+        <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
+          {service.businessName || service.title}
+        </Text>
+
+        <Text
+          numberOfLines={1}
+          style={[styles.desc, { color: theme.subtleText }]}
+        >
+          {service.title}
+        </Text>
+
+        <View style={styles.metaRow}>
+  {/* 📍 Location LEFT */}
+  <View style={styles.locationWrapper}>
+    <Ionicons name="location-sharp" size={12} color={HELP_IO_BLUE} />
+    <Text numberOfLines={1} style={styles.locationText}>
+    {formatLocation(service.location) || "Miami"}
+
+    </Text>
+  </View>
+
+  {/* ⭐ Reviews RIGHT */}
+  <View style={styles.reviewRow}>
+  <FeedStars size={11} rating={service.rating} />
+
+  
+  {/* ⭐ Rating Number */}
+  <Text style={styles.chromeRating}>
+    {Number(service.rating).toFixed(1)}
+  </Text>
+
+  
+  
+</View>
+</View>
+
+
+      </View>
+        </TouchableOpacity>
+    );
+  }}
+/>
 
       {/* ADD LISTING BUTTON */}
       <TouchableOpacity
         style={[styles.addButton, { backgroundColor: HELP_IO_BLUE }]}
-        onPress={() => navigation.navigate("CreateListing")}
+        onPress={() => navigation.navigate("MyListingsScreen")}
       >
         <Ionicons name="add" size={30} color="#fff" />
       </TouchableOpacity>
 
-      {/* PRICE MODAL */}
+      
+
+{/* PRICE MODAL */}
       <Modal
         visible={priceVisible}
         transparent
@@ -520,13 +1099,19 @@ export default function AllServicesScreen({ navigation }) {
           </TouchableOpacity>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 /* ---------- Styles ---------- */
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
+  safe: {
+  flex: 1,
+  position: "relative",
+  backgroundColor: "transparent", // 👈 CRITICAL
+  overflow: "visible"
+},
+
   container: { flex: 1 },
   topBlur: {
     position: "absolute",
@@ -539,14 +1124,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerContainer: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    paddingHorizontal: 20,
-    paddingBottom: 10,
-    paddingTop: Platform.OS === "ios" ? 40 : 20,
-  },
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  paddingHorizontal: 16,
+  paddingTop: 60,   // 👈 lowers everything
+  paddingBottom: 6,
+},
+
+
+
+
+
+
   headerTitleBlue: {
     fontSize: 23,
     fontWeight: "700",
@@ -574,13 +1164,43 @@ const styles = StyleSheet.create({
     borderRadius: 3.5,
     backgroundColor: "#FF3B30",
   },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    paddingHorizontal: 18,
-    marginTop: 4,
-    marginBottom: 12,
-  },
+ sectionTitle: {
+  fontSize: 22,
+  fontWeight: "800",
+  marginTop: 2,
+  marginBottom: 0,
+},
+
+
+zipChipWrap: {
+  borderRadius: 16,
+  overflow: "hidden",
+},
+
+zipChip: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 10,
+  paddingVertical: 6,
+  borderRadius: 16,
+  gap: 4,
+
+  backgroundColor: "rgba(255,255,255,0.35)",
+
+  shadowColor: "#000",
+  shadowOpacity: 0.08,
+  shadowRadius: 6,
+  shadowOffset: { width: 0, height: 2 },
+},
+
+zipText: {
+  fontSize: 13,
+  fontWeight: "700",
+  color: HELP_IO_BLUE,
+},
+
+
+
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -588,7 +1208,76 @@ const styles = StyleSheet.create({
     columnGap: 4,
     rowGap: 12,
   },
-  card: {
+  
+tabsGradient: {
+  position: "absolute",
+  top: -120,        // pushes atmosphere higher like HeroHeader
+  left: -40,
+  right: -40,
+  height: 220,      // more vertical fade = visible depth
+  zIndex: 0,        // behind content, above background
+},
+
+clearInlineBtn: {
+  position: "absolute",
+  right: 8,
+  height: 22,
+  width: 22,
+  borderRadius: 11,
+  justifyContent: "center",
+  alignItems: "center",
+  backgroundColor: "rgba(0,0,0,0.08)",
+},
+
+
+inlineSearchWrap: {
+  height: 36,
+  width: 150,
+  borderRadius: 18,
+
+  backgroundColor: "rgba(241, 239, 239, 1)",
+
+  justifyContent: "center",
+  overflow: "visible",
+
+  // subtle base shadow
+  shadowColor: "#000",
+  shadowOpacity: 0.12,
+  shadowRadius: 10,
+  shadowOffset: { width: 0, height: 4 },
+  elevation: 4,
+  marginTop: 2,
+
+
+  // ✨ crisp blue focus ring
+  borderWidth: 1.2,
+  borderColor: "rgba(253, 254, 255, 1)",
+
+  // ✨ tight Apple glow (not cloudy)
+  shadowColor: "#fbfeffff",
+  shadowOpacity: 0.85,
+  shadowRadius: 10,
+  shadowOffset: { width: 0, height: 0 },
+},
+
+
+
+inlineBlur: {
+  ...StyleSheet.absoluteFillObject,
+  borderRadius: 18,
+  overflow: "hidden",
+},
+
+
+
+inlineSearchText: {
+  fontSize: 15,
+  fontWeight: "500",
+  flexShrink: 1,
+},
+
+
+ card: {
     width: "49.5%",
     borderRadius: 10,
     overflow: "hidden",
@@ -599,7 +1288,7 @@ const styles = StyleSheet.create({
   image: { width: "100%", height: 240 },
   noImage: {
     width: "100%",
-    height: 190,
+    height: 240,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.1)",
@@ -654,6 +1343,94 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 16,
   },
+
+
+trendingHeaderRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  paddingHorizontal: 18,
+  marginTop: 8,
+  marginBottom: 10,
+},
+
+reviewRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 4,
+  marginTop: 5,      // 🔥 reduced spacing
+  transform: [{ translateY: -2.5 }], // 🔥 raises stars
+},
+
+chromeStarWrap: {
+  borderRadius: 50,
+  padding: 3,
+  marginRight: 6,
+
+  backgroundColor: "rgba(255,255,255,0.25)",
+
+  shadowColor: "#FFFFFF",
+  shadowOpacity: 1,
+  shadowRadius: 6,
+  shadowOffset: { width: 0, height: 0 },
+
+  borderWidth: 0.5,
+  borderColor: "rgba(193, 191, 191, 0.7)",
+},
+
+
+chromeRating: {
+  fontSize: 13,
+  fontWeight: "900",
+  letterSpacing: 0.4,
+
+  // metallic silver tone
+  color: "#c0c0c1ff",
+
+  // highlight edge
+  textShadowColor: "rgba(255,255,255,0.9)",
+  textShadowOffset: { width: 0, height: 0 },
+  textShadowRadius: 3,
+},
+
+chromeCount: {
+  marginLeft: 5,
+  fontSize: 12,
+  color: "#8E8E93",
+  fontWeight: "600",
+},
+
+inlineContent: {
+  flexDirection: "row",
+  alignItems: "center",
+  height: "100%",
+  paddingHorizontal: 16,
+  flex: 1,
+},
+
+
+metaRow: {
+  flexDirection: "row",
+  alignItems: "center",   // 🔥 vertical alignment
+  justifyContent: "space-between",
+  marginTop: 6,           // 🔥 more breathing room
+},
+
+locationWrapper: {
+  flexDirection: "row",
+  alignItems: "center",
+  maxWidth: "55%",
+},
+locationText: {
+  fontSize: 12,
+  fontWeight: "600",
+  color: HELP_IO_BLUE,
+  marginLeft: 3,
+  flexShrink: 1,
+},
+
+
+
   priceTo: { marginHorizontal: 10, fontSize: 17 },
   buttonRow: { flexDirection: "row", justifyContent: "space-between" },
   clearButton: {
@@ -668,7 +1445,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 12,                                                                                                                                                                                                                                                                  
     alignItems: "center",
   },
   applyTextDark: { color: "white", fontWeight: "700", fontSize: 16 },

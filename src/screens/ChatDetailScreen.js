@@ -27,6 +27,9 @@ import SaveBlurIcon from "../../assets/images/save_blur.png";
 import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../config/api";
 import useAuthStore from "../store/auth";
+import IosGlassIconButton from "../components/IosGlassIconButton";
+import IosAvatar from "../components/IosAvatar";
+import { io } from "socket.io-client";
 
 
 
@@ -78,6 +81,9 @@ const formatTime = (ts) => {
 export default function ChatDetailScreen({ route, navigation }) {
 
 const authUser = useAuthStore((s) => s.user);
+const socketRef = useRef(null);
+
+
 
 const myRole = useMemo(
   () => (authUser?.providerId ? "provider" : "customer"),
@@ -95,8 +101,19 @@ const myProviderId = useMemo(() => {
 }, [authUser?.providerId]);
 
 const myCustomerId = useMemo(() => {
+  // use real customer profile id if backend provides one
+  if (authUser?.customerId) {
+    return String(
+      typeof authUser.customerId === "object"
+        ? authUser.customerId._id
+        : authUser.customerId
+    );
+  }
+
+  // fallback (legacy behavior)
   return authUser?._id ? String(authUser._id) : null;
-}, [authUser?._id]);
+}, [authUser?.customerId, authUser?._id]);
+
 
 
 
@@ -105,14 +122,35 @@ const serviceId = route?.params?.serviceId || null;
 const isCRM = route?.params?.fromClientProfile === true;
 const recipientId = route?.params?.recipientId || null;
 
+const mySenderId = useMemo(() => {
+  if (myProviderId) return String(myProviderId);
+  if (myCustomerId) return String(myCustomerId);
+  return null;
+}, [myProviderId, myCustomerId]);
+
+
+const mySenderIds = useMemo(() => {
+  const ids = [];
+
+  if (myProviderId) ids.push(String(myProviderId));
+  if (myCustomerId) ids.push(String(myCustomerId));
+  if (authUser?._id) ids.push(String(authUser._id)); // critical fallback
+
+  return Array.from(new Set(ids.filter(Boolean)));
+}, [myProviderId, myCustomerId, authUser?._id]);
+
+
 
 useEffect(() => {
     const token = useAuthStore.getState().token;
     console.log("🔑 AUTH TOKEN:", token);
   }, []);
 
-  const { name } = route.params || {};
-  const displayName = name || "Chat";
+  const displayName =
+  route?.params?.recipientName ||   // ✅ From Client Profile CRM
+  route?.params?.name ||            // Other chat entry points
+  route?.params?.companyName ||     // Listings / providers
+  "Chat";
   const company = route?.params?.companyName || route?.params?.name || "";
   const phoneNumber = route?.params?.phoneNumber || route?.params?.phone || "";
 
@@ -144,51 +182,32 @@ const [sending, setSending] = useState(false);
   const keyboardAnim = useRef(new Animated.Value(0)).current;
   const callOpacity = useRef(new Animated.Value(0.4)).current;
   const callHintTimeout = useRef(null);
-
+const pendingTempIds = useRef(new Set());
+const didAutoScrollRef = useRef(false);
+const creatingConversationRef = useRef(false);
+const isFocusedRef = useRef(false);
   const [data, setData] = useState([]);
 
 const mapMessageFromApi = useCallback((m) => {
-  const providerId =
-    m.providerId
-      ? String(typeof m.providerId === "object" ? m.providerId._id : m.providerId)
-      : m.provider?._id
-      ? String(m.provider._id)
+  const senderId =
+    m.senderId
+      ? String(typeof m.senderId === "object" ? m.senderId._id : m.senderId)
       : null;
 
-  const customerId =
-    m.customerId
-      ? String(typeof m.customerId === "object" ? m.customerId._id : m.customerId)
-      : m.customer?._id
-      ? String(m.customer._id)
-      : null;
+  return {
+    id: String(m._id),
 
+    senderId,                 // ✅ REQUIRED FOR RECEIPTS
+    senderRole: m.senderRole,
 
+    text: m.text || null,
+    images: m.imageUrls?.length ? m.imageUrls : null,
 
-  const isMineByRole =
-  (m.senderRole === "provider" && myProviderId) ||
-  (m.senderRole === "customer" && myCustomerId);
-
-return {
-  id: String(m._id),
-
-  // 🔒 HARD LOCK OWNERSHIP
-  providerId:
-    providerId ??
-    (isMineByRole && myProviderId ? myProviderId : null),
-
-  customerId:
-    customerId ??
-    (isMineByRole && myCustomerId ? myCustomerId : null),
-
-  senderRole: m.senderRole,
-  text: m.text || null,
-  images: m.imageUrls?.length ? m.imageUrls : null,
-  at: new Date(m.createdAt).getTime(),
-  deliveredAt: m.deliveredAt,
-  readAt: m.readAt,
-};
-
-}, [myProviderId, myCustomerId]);
+    at: new Date(m.createdAt).getTime(),
+    deliveredAt: m.deliveredAt,
+    readAt: m.readAt,
+  };
+}, []);
 
 
 const normalizeProviderId = (p) => {
@@ -253,52 +272,90 @@ const normalizeCustomerId = (c) => {
 
 
   /* ----------------- Row Builder ----------------- */
-  const rows = useMemo(() => {
-    const out = [];
-    data.forEach((m, i) => {
-      const prev = data[i - 1];
-      if (!prev || !isSameDay(prev.at, m.at))
-        out.push({ type: "day", id: `d-${m.id}`, at: m.at });
+const rows = useMemo(() => {
+  // Sort messages NEWEST -> OLDEST for inverted FlatList
+  const msgs = [...data].sort((a, b) => b.at - a.at);
 
-      out.push({ type: "msg", ...m });
-    });
+  const out = [];
 
-    return out;
-  }, [data]);
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    const next = msgs[i + 1]; // older message
+
+    // Push message first (because list is inverted)
+    out.push({ type: "msg", ...m });
+
+    // Add day separator when the next (older) message is a different day
+    if (!next || !isSameDay(m.at, next.at)) {
+      out.push({ type: "day", id: `d-${m.id}`, at: m.at });
+    }
+  }
+
+  return out;
+}, [data]);
 
   /* ----------------- Scroll To Bottom ----------------- */
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({ animated: true });
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+
     });
   }, []);
 
+
+  
 const openConversation = useCallback(async () => {
   if (conversationId) return conversationId;
 
-  if (!providerId || !serviceId) {
-    Alert.alert("Chat error", "Missing service information.");
-    return null;
-  }
+  if (creatingConversationRef.current) return null;
+  creatingConversationRef.current = true;
 
-  const res = await api.post(
+  try {
+    let res;
+
+    if (providerId && serviceId) {
+      res = await api.post(
+        `/api/conversations/with-service/${providerId}`,
+        { serviceId }
+      );
+    } else if (providerId && !serviceId) {
+  res = await api.post(
     `/api/conversations/with-service/${providerId}`,
-    { serviceId }
+    { serviceId: null }
   );
+} else {
+      Alert.alert("Chat error", "Missing provider information.");
+      return null;
+    }
 
-  const cid = res.data?.conversation?._id;
+    const conversation = res?.data?.conversation;
+    const cid = conversation?._id;
 
-  if (cid) {
+    if (!cid) {
+      Alert.alert("Chat error", "Unable to start conversation.");
+      return null;
+    }
+
     setConversationId(cid);
+
+    if (conversation?.provider) {
+      navigation.setParams({
+        name: conversation.provider.businessName,
+        companyName: conversation.provider.businessName,
+        avatar: conversation.provider.avatar,
+      });
+    }
+
     return cid;
+
+  } catch (err) {
+    console.log("❌ Conversation open error:", err?.response?.data || err);
+    Alert.alert("Chat error", "Unable to start conversation.");
+    return null;
+  } finally {
+    creatingConversationRef.current = false;
   }
-
-  Alert.alert("Chat error", "Unable to start conversation.");
-  return null;
-}, [conversationId, providerId, serviceId]);
-
-
-
+}, [conversationId, providerId, serviceId, navigation]);
 
 const loadLatestMessages = useCallback(async (cid) => {
   try {
@@ -307,6 +364,8 @@ const loadLatestMessages = useCallback(async (cid) => {
     const msgs = res.data?.messages || [];
 
     setData(msgs.map(mapMessageFromApi));
+    didAutoScrollRef.current = false;
+
     setNextCursor(res.data?.nextCursor || null);
 
     if (msgs.length > 0) setHasSentMessage(true);
@@ -318,9 +377,9 @@ const loadLatestMessages = useCallback(async (cid) => {
 
 const markRead = useCallback(async (cid) => {
   try {
-    await api.post(`/api/messages/${cid}/read`);
+    await api.post(`/api/conversations/${cid}/read`);
   } catch (e) {
-    // silent
+    console.log("❌ markRead error:", e?.response?.data || e);
   }
 }, []);
 
@@ -331,12 +390,10 @@ useEffect(() => {
 
   (async () => {
     try {
-      if (conversationId) {
-        await loadLatestMessages(conversationId);
-        await markRead(conversationId);
-        return;
-      }
-
+    if (conversationId) {
+  await loadLatestMessages(conversationId);
+  return;
+}
       // 🚫 CRM must NEVER auto-create conversations
       if (isCRM) return;
 
@@ -344,8 +401,7 @@ useEffect(() => {
       const cid = await openConversation();
       if (!cid || !alive) return;
 
-      await loadLatestMessages(cid);
-      await markRead(cid);
+    await loadLatestMessages(cid);
     } catch (err) {
       console.log("❌ Chat open/load error:", err);
     }
@@ -359,16 +415,182 @@ useEffect(() => {
 
 useFocusEffect(
   useCallback(() => {
+    isFocusedRef.current = true;
+
     if (conversationId) {
       markRead(conversationId);
     }
+
+    return () => {
+      isFocusedRef.current = false;
+    };
   }, [conversationId, markRead])
 );
 
 
 
+/* ----------------- AUTO SEND FIRST MESSAGE ----------------- */
+useEffect(() => {
+  const first = route?.params?.initialMessage;
+
+  if (!first?.trim()) return;
+  if (!conversationId) return;
+  if (loadingHistory) return;
+  if (data.length > 0) return;
+
+  const run = async () => {
+    try {
+      // 🔥 CLEAR INPUT STATE FIRST
+      setMessage("");
+
+      await sendDirect(first.trim());
+
+      navigation.setParams({ initialMessage: undefined });
+    } catch (e) {
+      console.log("Auto-send failed:", e);
+    }
+  };
+
+  run();
+}, [
+  route?.params?.initialMessage,
+  conversationId,
+  loadingHistory,
+  data.length
+]);
+
+/* ----------------- REALTIME SOCKET (FOCUS SAFE) ----------------- */
+useFocusEffect(
+  useCallback(() => {
+    if (!conversationId) return;
+
+    socketRef.current = io("https://helpio-backend.onrender.com", {
+      transports: ["websocket"],
+    });
+
+    socketRef.current.emit("joinConversation", conversationId);
+
+    const onNewMessage = (msg) => {
+      const mapped = mapMessageFromApi(msg);
+
+      setData((prev) => {
+        if (prev.some((m) => m.id === mapped.id)) return prev;
+
+        const isMine =
+          mapped.senderId && mySenderIds.includes(String(mapped.senderId));
+        if (isMine) return prev;
+
+        if (pendingTempIds.current.size > 0) return prev;
+
+        const recentlySent = prev.some(
+          (m) =>
+            m.senderId === mapped.senderId &&
+            m.text === mapped.text &&
+            Math.abs(m.at - mapped.at) < 3000
+        );
+        if (recentlySent) return prev;
+
+        return [...prev, mapped];
+      });
+
+      scrollToBottom();
+
+      // ✅ Mark read ONLY while ChatDetail is focused
+      setTimeout(() => {
+        const isMine =
+          mapped.senderId && mySenderIds.includes(String(mapped.senderId));
+
+       if (!isMine && isFocusedRef.current && conversationId) {
+  markRead(conversationId);
+}
+      }, 500);
+    };
+
+  const onMessagesRead = ({ conversationId: cid, readAt }) => {
+  console.log("👀 Read receipt received in real time");
+
+  // 🚨 Only update if this event belongs to THIS chat
+  if (cid !== conversationId) return;
+
+  setData((prev) =>
+    prev.map((m) => {
+      const isMine =
+        m.senderId && mySenderIds.includes(String(m.senderId));
+
+      // Only update messages I sent that aren't already read
+      if (isMine && !m.readAt) {
+        return { ...m, readAt };
+      }
+
+      return m;
+    })
+  );
+};
+    socketRef.current.on("newMessage", onNewMessage);
+    socketRef.current.on("messagesRead", onMessagesRead);
+
+    return () => {
+      socketRef.current?.off("newMessage", onNewMessage);
+      socketRef.current?.off("messagesRead", onMessagesRead);
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, [conversationId, mapMessageFromApi, mySenderIds, scrollToBottom, markRead])
+);
+
+const sendDirect = async (text) => {
+  if (!text?.trim()) return;
+  if (sending) return;
+
+  let cid = conversationId;
+
+  if (!cid) {
+    cid = await openConversation();
+    if (!cid) return;
+  }
+
+  const tempId = `tmp_${Date.now()}`;
+  pendingTempIds.current.add(tempId);
+
+  const optimistic = {
+    id: tempId,
+    senderId: mySenderId,
+    senderRole: myRole,
+    text,
+    images: null,
+    at: Date.now(),
+    deliveredAt: new Date(),
+    readAt: null,
+  };
+
+  setData((p) => [...p, optimistic]);
+  setSending(true);
+  scrollToBottom();
+
+  try {
+    const res = await api.post(`/api/messages/${cid}`, { text });
+
+    const real = res.data?.message;
+    const mapped = mapMessageFromApi(real);
+
+    setData((prev) =>
+      prev.map((m) => (m.id === tempId ? mapped : m))
+    );
+
+    pendingTempIds.current.delete(tempId);
+    setHasSentMessage(true);
+  } catch (err) {
+    setData((p) => p.filter((m) => m.id !== tempId));
+  } finally {
+    setSending(false);
+  }
+};
+
 /* ----------------- Send Message ----------------- */
 const send = useCallback(async () => {
+
+  console.log("🚨 SEND FUNCTION CALLED");
+
   const txt = message.trim();
   if (!txt) return;
 
@@ -392,17 +614,17 @@ if (!cid) {
 
   const tempId = `tmp_${Date.now()}`;
 
+pendingTempIds.current.add(tempId);
+
+
  const auth = useAuthStore.getState();
 
 const optimistic = {
   id: tempId,
 
-  providerId: normalizeProviderId(auth.user?.providerId),
-  customerId: auth.user?.providerId
-    ? null
-    : normalizeCustomerId(auth.user?._id),
+  senderId: mySenderId,     // ✅ REQUIRED
+  senderRole: myRole,
 
-  senderRole: myRole, // fallback only
   text: txt,
   images: null,
   at: Date.now(),
@@ -432,15 +654,24 @@ if (isCRM && recipientId) {
 
 const res = await api.post(`/api/messages/${cid}`, payload);
 
-    const real = res.data?.message;
+ 
 
-setData((p) =>
-  p.map((m) =>
-    m.id === tempId
-      ? mapMessageFromApi(real)
-      : m
-  )
+// just clear temp — let socket deliver real message
+const real = res.data?.message;
+const mapped = mapMessageFromApi(real);
+
+// 🔥 Replace optimistic message IN PLACE
+setData((prev) =>
+  prev.map((m) => (m.id === tempId ? mapped : m))
 );
+
+pendingTempIds.current.delete(tempId);
+
+
+
+
+
+
 
   } catch (err) {
     console.log("❌ Send message error:", err?.response?.data || err);
@@ -531,11 +762,24 @@ customerId: authUser?.providerId
   };
 
   /* ----------------- Row Renderer ----------------- */
-  const lastMine = [...data].reverse().find((m) =>
-  myProviderId
-    ? m.providerId === myProviderId
-    : m.customerId === myCustomerId
-)?.id;
+const lastMine = useMemo(() => {
+  const last = [...data].reverse().find((m) => {
+    if (m.senderRole === "provider") {
+      return !!myProviderId && String(m.senderId) === String(myProviderId);
+    }
+
+    if (m.senderRole === "customer") {
+      return myRole === "customer";
+    }
+
+    return false;
+  });
+
+  return last?.id || null;
+}, [data, myProviderId, myRole]);
+
+
+
 
   const renderRow = ({ item }) => {
     if (item.type === "day") {
@@ -545,9 +789,14 @@ customerId: authUser?.providerId
         </View>
       );
     }
+let mine = false;
 
-   const mine = item.senderRole === myRole;
-
+if (item.senderRole === "provider") {
+  mine = !!myProviderId && String(item.senderId) === String(myProviderId);
+} else if (item.senderRole === "customer") {
+  // customer IDs are inconsistent → rely on role
+  mine = myRole === "customer";
+}
 
     return (
       <View style={[styles.msgWrap, { alignItems: mine ? "flex-end" : "flex-start" }]}>
@@ -672,48 +921,53 @@ customerId: authUser?.providerId
             {avatar.type === "image" ? (
               <Image source={{ uri: avatar.value }} style={styles.igAvatar} />
             ) : (
-              <View style={styles.igLetterCircle}>
-                <Text style={styles.igLetterText}>{avatar.value}</Text>
-              </View>
+             <IosAvatar name={displayName} size={40} />
+
             )}
           </View>
 
-          <View style={{ flexDirection: "column", flex: 1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text style={styles.igName}>{displayName}</Text>
-              <Image
-                source={require("../../assets/images/helpio_verified.png")}
-                style={styles.verifiedBadge}
-              />
-            </View>
-            <Text style={styles.igSubText}>Business chat</Text>
-          </View>
+         <View style={styles.igNameBlock}>
+  <View style={styles.igNameRow}>
+    <Text
+      style={styles.igName}
+      numberOfLines={1}
+      ellipsizeMode="tail"
+    >
+      {displayName}
+    </Text>
+
+    {/* Only render if verified later if needed */}
+    <Image
+      source={require("../../assets/images/helpio_verified.png")}
+      style={styles.verifiedBadge}
+    />
+  </View>
+
+  <Text style={styles.igSubText}>Business chat</Text>
+</View>
 
           <View style={styles.igIcons}>
-            <TouchableOpacity onPress={handleCallPress} activeOpacity={0.7}>
-              <Animated.View style={{ opacity: callOpacity }}>
-                <Image
-                  source={PhoneBlurIcon}
-                  style={{
-                    width: 45,
-                    height: 45,
-                    opacity: hasSentMessage ? 1 : 0.4,
-                    marginHorizontal: 10,
-                  }}
-                />
-              </Animated.View>
-            </TouchableOpacity>
+            <Animated.View style={{ opacity: callOpacity, marginHorizontal: 6 }}>
+  <IosGlassIconButton
+    icon="call"
+    onPress={handleCallPress}
+    disabled={!hasSentMessage}
+  />
+</Animated.View>
 
-            <TouchableOpacity onPress={handleFlagPress} activeOpacity={0.7}>
-              <Image
-                source={SaveBlurIcon}
-                style={{
-                  width: 45,
-                  height: 45,
-                  marginHorizontal: 10,
-                }}
-              />
-            </TouchableOpacity>
+
+          
+
+
+<View style={{ marginHorizontal: 6 }}>
+  <IosGlassIconButton
+    icon="person-add"
+    onPress={() => navigation.navigate("AddClient")}
+  />
+</View>
+
+
+
           </View>
         </View>
       </View>
@@ -724,20 +978,19 @@ customerId: authUser?.providerId
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
-        <FlatList
-          ref={listRef}
-          data={rows}
-          keyExtractor={(it) => it.id}
-          renderItem={renderRow}
-          showsVerticalScrollIndicator={false}
-          contentInset={{ bottom: 4 }}
-          contentContainerStyle={{ paddingTop: 8, paddingBottom: 4 }}
-          onScrollBeginDrag={() => setUserScrolled(true)}
-          onContentSizeChange={() => {
-            if (!userScrolled) scrollToBottom();
-          }}
-          bounces
-        />
+       <FlatList
+  ref={listRef}
+  data={rows}
+  inverted
+  keyExtractor={(it) => it.id}
+  renderItem={renderRow}
+  showsVerticalScrollIndicator={false}
+  contentInset={{ bottom: 4 }}
+  contentContainerStyle={{ paddingTop: 8, paddingBottom: 4 }}
+  onScrollBeginDrag={() => setUserScrolled(true)}
+  bounces
+/>
+
 
         {/* Call hint */}
         {showCallHint && (
@@ -927,11 +1180,33 @@ const styles = StyleSheet.create({
     borderBottomColor: "#E5E5E5",
   },
   igBackBtn: { padding: 6, paddingRight: 12 },
-  igCenter: { flexDirection: "row", alignItems: "center", flex: 1 },
+ 
+ 
+  igCenter: {
+  flexDirection: "row",
+  alignItems: "center",
+  flex: 1,
+},
   igAvatar: { width: 38, height: 38, borderRadius: 19, marginRight: 10 },
-  igName: { fontSize: 15, fontWeight: "700", color: "#111" },
+  
+  
+  
+  igName: {
+  fontSize: 15,
+  fontWeight: "700",
+  color: "#111",
+  flexShrink: 1,    // 🔥 allows ellipsis
+},
   igSubText: { fontSize: 12, color: "#8E8E93", marginTop: 1 },
-  igIcons: { flexDirection: "row", alignItems: "center" },
+ 
+ 
+ 
+  igIcons: {
+  flexDirection: "row",
+  alignItems: "center",
+  width: 110,          // 🔥 HARD BOUNDARY
+  justifyContent: "flex-end",
+},
   verifiedBadge: { width: 16, height: 16, marginLeft: 4, resizeMode: "contain" },
 
   igAvatarWrap: {
@@ -953,6 +1228,26 @@ const styles = StyleSheet.create({
   },
   igLetterText: { fontSize: 18, fontWeight: "700", color: "#4A4A4A" },
 
+
+
+
+
+igNameBlock: {
+  flex: 1,
+  minWidth: 0,      // 🔥 CRITICAL — enables truncation
+  marginRight: 8,
+},
+
+igNameRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  minWidth: 0,
+},
+
+
+
+
+
   /* Image viewer */
   viewerContainer: {
     flex: 1,
@@ -970,3 +1265,4 @@ const styles = StyleSheet.create({
     padding: 6,
   },
 });
+

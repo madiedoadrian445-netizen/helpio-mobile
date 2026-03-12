@@ -1,4 +1,4 @@
-// src/screens/ClientProfileScreen.js
+ // src/screens/ClientProfileScreen.js
 import React, { useEffect, useState, useCallback } from "react";
 import {
   SafeAreaView,
@@ -18,12 +18,42 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../ThemeContext";
 import { API_BASE_URL } from "../config/api";
 import { api } from "../config/api";
+import { RefreshControl } from "react-native";
+
+
 
 const HELP_BLUE = "#00A6FF";
 
 export default function ClientProfileScreen({ route, navigation }) {
   const { darkMode, theme } = useTheme();
-  const client = route?.params?.client || {};
+const [refreshing, setRefreshing] = useState(false);
+
+
+  const initialClient = route?.params?.client || null;
+const [client, setClient] = useState(initialClient);
+
+
+  const customerId = (() => {
+  if (typeof client?._id === "string") return client._id;
+  if (typeof client?.customerId === "string") return client.customerId;
+  if (typeof client?.id === "string") return client.id;
+
+  if (client?._id && typeof client._id === "object" && client._id.toString)
+    return client._id.toString();
+
+  if (
+    client?.customerId &&
+    typeof client.customerId === "object" &&
+    client.customerId.toString
+  )
+    return client.customerId.toString();
+
+  if (client?.customer?._id)
+    return client.customer._id.toString();
+
+  return null;
+})();
+
 
   const initials = (client.name || "?")
     .split(" ")
@@ -50,75 +80,6 @@ export default function ClientProfileScreen({ route, navigation }) {
     return phone || "Not set";
   };
 
-  const handleCall = () => {
-    if (!cleaned || cleaned.length !== 10) return;
-
-    const finalNumber = cleaned.startsWith("1")
-      ? `+${cleaned}`
-      : `+1${cleaned}`;
-
-    Linking.openURL(`tel:${finalNumber}`).catch(() => {});
-  };
-
-const customerId = (() => {
-  if (typeof client?._id === "string") return client._id;
-  if (typeof client?.customerId === "string") return client.customerId;
-  if (typeof client?.id === "string") return client.id;
-
-  if (client?._id && typeof client._id === "object" && client._id.toString)
-    return client._id.toString();
-
-  if (
-    client?.customerId &&
-    typeof client.customerId === "object" &&
-    client.customerId.toString
-  )
-    return client.customerId.toString();
-
-  if (client?.customer?._id)
-    return client.customer._id.toString();
-
-  return null;
-})();
-
-console.log(
-  "🧾 customerId used for timeline:",
-  customerId,
-  typeof customerId
-);
-
-
-  const handleText = () => {
-  if (!customerId) {
-    Alert.alert("Chat error", "Missing customer information.");
-    return;
-  }
-
-  navigation.navigate("ChatDetail", {
-    customerId,              // 🔥 REQUIRED
-    name: client.name,       // for header
-    phoneNumber: phone,      // for call button
-    avatar: null,            // optional
-    fromClientProfile: true,
-  });
-};
-
-  const handleEmail = () => {
-    if (!email) return;
-    Linking.openURL(`mailto:${email}`).catch(() => {});
-  };
-
-  const handleInvoice = () => {
-    navigation.navigate("InvoiceBuilderScreen", {
-      client,
-      fromClientProfile: true,
-    });
-  };
-
-
-  const callDisabled = !cleaned || cleaned.length !== 10;
-
-  /* ---------------- TIMELINE STATE + FETCH ---------------- */
 
 const [timeline, setTimeline] = useState([]);
 const [timelineLoading, setTimelineLoading] = useState(false);
@@ -148,6 +109,143 @@ const loadTimeline = useCallback(async () => {
     setTimelineLoading(false);
   }
 }, [customerId]);
+
+
+
+const onRefresh = useCallback(async () => {
+  if (!customerId) return;
+
+  try {
+    setRefreshing(true);
+
+    await Promise.all([
+      loadClient(),
+      loadTimeline(),
+    ]);
+
+  } catch (e) {
+    console.log("❌ Pull refresh error", e);
+  } finally {
+    setRefreshing(false);
+  }
+}, [customerId, loadClient, loadTimeline]);
+
+
+const loadClient = useCallback(async () => {
+  if (!customerId) return;
+
+  try {
+    const res = await api.get(`/api/customers/${customerId}`);
+
+    if (res.data?.success && res.data.customer) {
+      setClient(res.data.customer);
+    }
+  } catch (err) {
+    console.log("❌ Error loading client:", err.response?.data || err.message);
+  }
+}, [customerId]);
+
+
+
+  const handleCall = () => {
+    if (!cleaned || cleaned.length !== 10) return;
+
+    const finalNumber = cleaned.startsWith("1")
+      ? `+${cleaned}`
+      : `+1${cleaned}`;
+
+    Linking.openURL(`tel:${finalNumber}`).catch(() => {});
+  };
+
+const handleInvoice = () => {
+  if (!customerId) {
+    Alert.alert("Unavailable", "Client information is missing.");
+    return;
+  }
+
+  navigation.navigate("InvoiceBuilderScreen", {
+    clientId: customerId,
+    clientName: client.name,
+  });
+};
+
+
+const handleEmail = async () => {
+  if (!email) {
+    Alert.alert("Unavailable", "No email available for this client.");
+    return;
+  }
+
+  const mailtoUrl = `mailto:${encodeURIComponent(email)}`;
+
+  try {
+    const canOpen = await Linking.canOpenURL(mailtoUrl);
+
+    if (!canOpen) {
+      Alert.alert(
+        "Mail unavailable",
+        "No mail app is configured on this device."
+      );
+      return;
+    }
+
+    await Linking.openURL(mailtoUrl);
+  } catch (err) {
+    Alert.alert("Error", "Unable to open Apple Mail.");
+  }
+};
+
+
+
+
+console.log(
+  "🧾 customerId used for timeline:",
+  customerId,
+  typeof customerId
+);
+
+
+  const handleText = async () => {
+  if (!customerId) {
+    Alert.alert("Chat error", "Missing customer information.");
+    return;
+  }
+
+  try {
+    const res = await api.post(`/api/conversations/with-customer/${customerId}`);
+
+    const convo = res.data?.conversation;
+    if (!res.data?.success || !convo?._id) {
+      Alert.alert("Chat error", "Unable to open conversation.");
+      return;
+    }
+
+    navigation.navigate("ChatDetail", {
+  conversationId: convo._id,
+
+  // ✅ Explicit recipient (the client)
+  recipientId: customerId,
+  recipientName: client.name,
+  recipientPhone: phone,
+
+  // Optional context
+  fromClientProfile: true,
+});
+
+  } catch (err) {
+    console.log("❌ CRM → Chat error:", err.response?.data || err.message);
+    Alert.alert("Chat error", "Failed to open chat.");
+  }
+};
+
+
+  const callDisabled = !cleaned || cleaned.length !== 10;
+
+  /* ---------------- TIMELINE STATE + FETCH ---------------- */
+
+useEffect(() => {
+  loadClient();
+}, [loadClient]);
 
 
 useEffect(() => {
@@ -216,16 +314,37 @@ useEffect(() => {
           </Text>
         </View>
 
-        <View style={styles.headerSideRight} />
+    <TouchableOpacity
+  activeOpacity={0.7}
+  onPress={() =>
+    navigation.navigate("AddClient", {
+      client,
+    })
+  }
+  style={styles.editButton}
+>
+  <Text style={styles.editButtonText}>Edit</Text>
+</TouchableOpacity>
+
+
       </BlurView>
 
       <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingTop: 100,
-          paddingBottom: 40,
-        }}
-      >
+  showsVerticalScrollIndicator={false}
+  contentContainerStyle={{
+    paddingTop: 100,
+    paddingBottom: 40,
+  }}
+  refreshControl={
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      tintColor="#007AFF"
+       progressViewOffset={120} // 👈 pushes spinner below header
+    />
+  }
+>
+
         {/* TOP GRADIENT CARD */}
         <View style={styles.topContainer}>
           <LinearGradient
@@ -552,30 +671,36 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
 
   header: {
-    height: 92,
-    paddingTop: Platform.OS === "ios" ? 12 : 8,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingBottom: 8,
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 20,
-  },
+  height: 92, // ✅ native iOS nav height with safe area
+  paddingTop: Platform.OS === "ios" ? 12 : 8,
+  flexDirection: "row",
+  alignItems: "flex-end", // ⬅️ IMPORTANT
+  justifyContent: "space-between",
+  paddingHorizontal: 14,
+  paddingBottom: 8,
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  zIndex: 20,
+},
 
-  headerSide: {
-    flexDirection: "row",
-    alignItems: "center",
-    width: 90,
-  },
+headerSide: {
+  width: 90,
+  flexDirection: "row",
+  alignItems: "center",
+},
 
-  headerSideRight: {
-    width: 60,
-    alignItems: "flex-end",
-  },
+headerSideRight: {
+  width: 80,
+  alignItems: "flex-end",
+  justifyContent: "flex-end",
+  paddingBottom: Platform.OS === "ios" ? 6 : 4,
+
+},
+
+
+
 
   headerBackText: {
     fontSize: 16,
@@ -584,7 +709,36 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 
-  headerCenter: { flex: 1, alignItems: "center" },
+editButton: {
+  position: "absolute",
+  right: 14,
+  bottom: Platform.OS === "ios" ? 2 : 8, // 👈 THIS moves it down
+  minHeight: 36,
+  paddingHorizontal: 16,
+  borderRadius: 18,
+  backgroundColor: "rgba(0,122,255,0.12)",
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+
+
+editButtonText: {
+  fontSize: 17,       // 👈 iOS nav action size
+  fontWeight: "700",  // 👈 makes it read bigger
+  color: "#007AFF",
+},
+
+
+
+  headerCenter: {
+  position: "absolute",
+  left: 0,
+  right: 0,
+  bottom: 8,           // ⬅️ aligns with Back / Edit text baseline
+  alignItems: "center",
+  pointerEvents: "none",
+},
 
   headerTitle: { fontSize: 17, fontWeight: "700" },
 
@@ -689,6 +843,15 @@ const sectionHeaderStyles = StyleSheet.create({
     textTransform: "uppercase",
     color: "#8E8E93",
   },
+
+headerEditText: {
+  fontSize: 27,          // ⬆️ visually larger
+  fontWeight: "700",     // bolder = clearer action
+  color: "#007AFF",
+},
+
+
+
 });
 
 const infoRowStyles = StyleSheet.create({

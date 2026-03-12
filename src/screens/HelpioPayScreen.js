@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api } from "../config/api";
 import { Audio } from "expo-av";
 import useAuthStore from "../store/auth";
+import { Image } from "react-native";
 
 
 
@@ -39,6 +40,7 @@ export default function HelpioPayScreen({ navigation }) {
   const translateY = useRef(new Animated.Value(0)).current;
   const successScale = useRef(new Animated.Value(0.6)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
+const contentOpacity = useRef(new Animated.Value(1)).current;
 
 
   if (!isHydrated) {
@@ -200,6 +202,13 @@ const providerId = provider?._id || null;
     try {
       setPhase("tapping");
 
+Animated.timing(contentOpacity, {
+  toValue: 0,
+  duration: 220,
+  useNativeDriver: true,
+}).start();
+
+
       await new Promise((r) => setTimeout(r, 650));
       await playTapAcceptedSound();
 
@@ -224,7 +233,15 @@ await new Promise((r) => setTimeout(r, 300));
 playSuccessAnimation();
 
 await new Promise((r) => setTimeout(r, 650));
+
+Animated.timing(contentOpacity, {
+  toValue: 1,
+  duration: 180,
+  useNativeDriver: true,
+}).start();
+
 closeSheet();
+
 
 
     } catch (err) {
@@ -237,11 +254,30 @@ closeSheet();
   };
 
   const keypadRows = [
-    ["1", "2", "3"],
-    ["4", "5", "6"],
-    ["7", "8", "9"],
-    [".", "0", "<"],
-  ];
+  [
+    { n: "1", l: "" },
+    { n: "2", l: "" },
+    { n: "3", l: "" },
+  ],
+  [
+    { n: "4", l: "" },
+    { n: "5", l: "" },
+    { n: "6", l: "" },
+  ],
+  [
+    { n: "7", l: "" },
+    { n: "8", l: "" },
+    { n: "9", l: "" },
+  ],
+  [
+    { n: null, l: "" }, // empty spacer
+    { n: "0", l: "" }, // centered zero
+    { n: "<", l: "" },  // backspace
+  ],
+];
+
+  
+
 
   const panResponder = useRef(
     PanResponder.create({
@@ -279,53 +315,9 @@ closeSheet();
       {...panResponder.panHandlers}
     >
       <SafeAreaView style={styles.safe}>
-        <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+        <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
 
-        {phase === "tapping" && (
-  <View style={styles.tapOverlay} pointerEvents="auto">
-    <BlurView intensity={60} tint="light" style={StyleSheet.absoluteFill} />
-
-    <View style={styles.tapContent}>
-      {/* Card */}
-      <View style={styles.tapCardWrapper}>
-        <View style={styles.tapCardShadow}>
-          <BlurView intensity={30} tint="dark" style={styles.card}>
-            <View style={styles.cardRowTop}>
-              <Text style={styles.cardName}>HELPIO</Text>
-              <Text style={styles.cardBrand}>VISA</Text>
-            </View>
-
-            <View style={styles.cardEyeWrap}>
-              <View style={styles.cardEyeCircle}>
-                <Ionicons
-                  name="eye-outline"
-                  size={22}
-                  color="rgba(255,255,255,0.85)"
-                />
-              </View>
-            </View>
-
-            <View style={styles.cardRowBottom}>
-              <Text style={styles.cardLabel}>Helpio Pay</Text>
-              <Text style={styles.cardLast4}>•••• 4242</Text>
-            </View>
-          </BlurView>
-        </View>
-      </View>
-
-      {/* NFC Center */}
-      <View style={styles.nfcCenter}>
-        <Animated.View
-          style={[styles.tapRing, { transform: [{ scale: nfcPulse }] }]}
-        >
-          <Ionicons name="phone-portrait-outline" size={42} color="#007AFF" />
-        </Animated.View>
-
-        <Text style={styles.tapText}>Hold Near Reader</Text>
-      </View>
-    </View>
-  </View>
-)}
+        
 
 {showSuccess && (
   <View style={styles.successOverlay} pointerEvents="none">
@@ -352,175 +344,210 @@ closeSheet();
 
 
           
-        <View style={styles.container}>
-          {/* Card */}
-          <View style={styles.cardShadow}>
-            <BlurView intensity={30} tint="dark" style={styles.card}>
-              <View style={styles.cardRowTop}>
-                <Text style={styles.cardName}>HELPIO</Text>
-                <Text style={styles.cardBrand}>VISA</Text>
-              </View>
+     <View style={styles.container}>
+  {/* Card */}
+  <View style={styles.cardShadow}>
+    <Image
+      source={require("../../assets/ui/helpio-cash-card.png")}
+      style={styles.cardImage}
+      resizeMode="cover"
+    />
+  </View>
 
-              <View style={styles.cardEyeWrap}>
-                <Animated.View
-                  style={[styles.cardEyeCircle, { transform: [{ scale: pulse }] }]}
-                >
-                  <Ionicons
-                    name="eye-outline"
-                    size={22}
-                    color="rgba(255,255,255,0.85)"
-                  />
-                </Animated.View>
-              </View>
+  {/* Inline Apple-Pay NFC */}
+  {phase === "tapping" && (
+    <Animated.View
+      style={[
+        styles.inlineTap,
+        { opacity: Animated.subtract(1, contentOpacity) },
+      ]}
+    >
+      <Animated.View
+        style={[styles.tapRing, { transform: [{ scale: nfcPulse }] }]}
+      >
+        <Ionicons name="phone-portrait-outline" size={44} color="#007AFF" />
+      </Animated.View>
 
-              <View style={styles.cardRowBottom}>
-                <Text style={styles.cardLabel}>Helpio Pay</Text>
-                <Text style={styles.cardLast4}>•••• 4242</Text>
-              </View>
-            </BlurView>
-          </View>
-
-          {/* Amount */}
-          <View style={styles.amountBlock}>
-            <View style={styles.amountRow}>
-              <Text style={styles.amount}>{formattedAmount}</Text>
-              <Text style={styles.currency}>USD</Text>
-            </View>
-            <Text style={styles.amountHint}>Enter amount to charge</Text>
-          </View>
-
-          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-
-          {/* Keypad */}
-          <View style={styles.keypad}>
-            {keypadRows.map((row, rowIndex) => (
-              <View key={`row-${rowIndex}`} style={styles.keypadRow}>
-                {row.map((key) => {
-                  if (key === ".") {
-                    return (
-                      <View key="dot" style={[styles.keypadKey, styles.keypadKeyDisabled]}>
-                        <Text style={[styles.keyText, styles.keyTextDisabled]}>.</Text>
-                      </View>
-                    );
-                  }
-
-                  if (key === "<") {
-                    return (
-                      <TouchableOpacity
-                        key="backspace"
-                        style={styles.keypadKey}
-                        onPress={handleBackspace}
-                      >
-                        <Ionicons name="backspace-outline" size={24} color="#111" />
-                      </TouchableOpacity>
-                    );
-                  }
-
-                  return (
-                    <TouchableOpacity
-                      key={key}
-                      style={styles.keypadKey}
-                      onPress={() => handleDigitPress(key)}
-                    >
-                      <Text style={styles.keyText}>{key}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ))}
-          </View>
-
-          {/* Buttons */}
-          <View style={styles.bottomBar}>
-            <TouchableOpacity
-              style={[styles.primaryButton, isProcessing && { opacity: 0.7 }]}
-              onPress={handlePayPress}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.primaryText}>Charge</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => console.log("Sparkle button pressed")}
-              disabled={isProcessing}
-            >
-              <Ionicons name="sparkles-outline" size={22} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
+      <Text style={styles.tapText}>Hold Near Reader</Text>
     </Animated.View>
-  );
+  )}
+
+  {/* Fading content */}
+  <Animated.View style={{ opacity: contentOpacity }}>
+    {/* Amount */}
+    <View style={styles.amountBlock}>
+      <View style={styles.amountRow}>
+        <Text style={styles.amount}>{formattedAmount}</Text>
+        <Text style={styles.currency}>USD</Text>
+      </View>
+      <Text style={styles.amountHint}>Enter amount to charge</Text>
+    </View>
+
+    {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+
+    {/* Keypad */}
+    <View style={styles.keypad}>
+      {keypadRows.map((row, r) => (
+        <View key={r} style={styles.keypadRow}>
+          {row.map((key, i) => {
+            if (!key.n) {
+              return <View key={i} style={[styles.iosKey, { opacity: 0 }]} />;
+            }
+
+            if (key.n === "<") {
+              return (
+                <TouchableOpacity
+                  key={i}
+                  style={styles.iosKey}
+                  onPress={handleBackspace}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="backspace-outline" size={24} color="#000" />
+                </TouchableOpacity>
+              );
+            }
+
+            return (
+              <TouchableOpacity
+                key={i}
+                style={styles.iosKey}
+                onPress={() => handleDigitPress(key.n)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.iosNumber}>{key.n}</Text>
+                {key.l ? <Text style={styles.iosLetters}>{key.l}</Text> : null}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+
+    {/* Buttons */}
+    <View style={styles.bottomBar}>
+      <TouchableOpacity
+        style={[styles.primaryButton, isProcessing && { opacity: 0.7 }]}
+        onPress={handlePayPress}
+        disabled={isProcessing}
+      >
+        {isProcessing ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.primaryText}>Charge</Text>
+        )}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.secondaryButton}
+        onPress={() => console.log("Sparkle button pressed")}
+        disabled={isProcessing}
+      >
+        <Ionicons name="sparkles-outline" size={22} color="#fff" />
+      </TouchableOpacity>
+    </View>
+        </Animated.View>
+      </View>
+    </SafeAreaView>
+  </Animated.View>
+);
 }
 
 /* ---------- Styles ---------- */
 const styles = StyleSheet.create({
   safe: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  container: {
-    flex: 1,
-    paddingTop: Platform.OS === "ios" ? 16 : 24,
-    paddingHorizontal: 22,
-  },
+  flex: 1,
+  backgroundColor: "#F2F2F7",
+},
 
-  tapOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(242,242,247,0.92)",
-    zIndex: 999,
-  },
+  container: {
+  flex: 1,
+  paddingTop: Platform.OS === "ios" ? 16 : 24,
+  paddingHorizontal: 8, // ← makes card wider
+},
+
+
   tapContent: {
-    flex: 1,
-  },
-  tapCardShadow: {
-    borderRadius: 18,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
-  },
-  tapRing: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 3,
-    borderColor: "#007AFF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-  },
-  tapText: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#8E8E93",
-  },
+  flex: 1,
+  alignItems: "center",
+},
+
+tapCardTop: {
+  width: "100%",
+  paddingHorizontal: 16,
+  marginTop: Platform.OS === "ios" ? 90 : 70,
+},
+
+tapCardImage: {
+  width: "100%",
+  height: 220,
+  borderRadius: 26,
+},
+
+tapCenter: {
+  position: "absolute",
+  top: "48%",
+  alignItems: "center",
+},
+
+tapRing: {
+  width: 100,
+  height: 100,
+  borderRadius: 50,
+  borderWidth: 3,
+  borderColor: "#007AFF",
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: 16,
+
+  shadowColor: "#007AFF",
+  shadowOpacity: 0.25,
+  shadowRadius: 16,
+  shadowOffset: { width: 0, height: 6 },
+},
+
+tapText: {
+  fontSize: 17,
+  fontWeight: "600",
+  color: "#8E8E93",
+},
+
+tapOverlay: {
+  ...StyleSheet.absoluteFillObject,   // 🔥 makes it full screen
+  zIndex: 9999,                       // 🔥 ensures it sits above EVERYTHING
+  elevation: 9999,                    // 🔥 Android safety
+  backgroundColor: "#F2F2F7",         // Apple system background
+},
+
+
 
   cardShadow: {
-    borderRadius: 18,
-    overflow: "hidden",
-    marginTop: 12,
-    marginBottom: 80,
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
-  },
+  borderRadius: 28,
+  overflow: "visible",
+
+  marginTop: 24,
+  marginBottom: 56,
+
+  marginHorizontal: -8, // ⭐️ KEY: pushes card closer to screen edges
+
+
+
+  shadowColor: "#000",
+  shadowOpacity: 0.55,           // ✅ heavy
+  shadowRadius: 45,              // ✅ wide blur
+  shadowOffset: { width: 0, height: 26 }, // ✅ deep drop
+
+  elevation: 18,                 // ✅ Android depth
+},
+
   card: {
-    height: 220,
-    borderRadius: 18,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: "rgba(10,10,10,0.9)",
-  },
+  height: 240,   // true Apple Cash height
+
+  borderRadius: 24,   // Apple curve
+  paddingHorizontal: 20,
+  paddingVertical: 16,
+  backgroundColor: "rgba(10,10,10,0.9)",
+},
+
   cardRowTop: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -588,7 +615,7 @@ successIcon: {
   width: 72,
   height: 72,
   borderRadius: 36,
-  backgroundColor: "#22C55E", // Apple-style success green
+  backgroundColor: "#00A6FF", // Apple-style success green
   alignItems: "center",
   justifyContent: "center",
   marginBottom: 16,
@@ -606,6 +633,55 @@ successAmount: {
   fontWeight: "800",
   color: "#111",
 },
+
+cardClip: {
+  borderRadius: 24,
+  overflow: "hidden",
+},
+
+
+iosKey: {
+  width: 66,        // was 72
+  height: 66,       // was 72
+  borderRadius: 33,
+
+  backgroundColor: "#E5E5EA",
+  alignItems: "center",
+  justifyContent: "center",
+
+  shadowColor: "#000",
+  shadowOpacity: 0.06,
+  shadowRadius: 6,
+  shadowOffset: { width: 0, height: 2 },
+
+  elevation: 1,
+},
+
+
+
+iosNumber: {
+  fontSize: 34,
+  fontWeight: "500",
+  color: "#000",
+},
+
+iosLetters: {
+  fontSize: 11,
+  fontWeight: "600",
+  color: "#000",
+  marginTop: -2,
+  letterSpacing: 1,
+},
+
+inlineTap: {
+  position: "absolute",
+  top: "42%",
+  left: 0,
+  right: 0,
+  alignItems: "center",
+  justifyContent: "center",
+},
+
 
 
   tapCardWrapper: {
@@ -656,15 +732,19 @@ successAmount: {
     color: "#DC2626",
   },
 
-  keypad: {
-    marginTop: 40,
-    marginBottom: 24,
-  },
+ keypad: {
+  marginTop: 20,     // was 28
+  marginBottom: 18,
+},
+
+
   keypadRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginVertical: 6,
-  },
+  flexDirection: "row",
+  justifyContent: "space-between",
+  marginBottom: 14,   // was 18
+  paddingHorizontal: 28,
+},
+
   keypadKey: {
     flex: 1,
     marginHorizontal: 4,
@@ -685,12 +765,22 @@ successAmount: {
     color: "#999",
   },
 
+cardImage: {
+  width: "104%", // ⭐️ slightly wider than container
+  height: 240,
+  borderRadius: 28,
+  alignSelf: "center",
+},
+
+
+
   bottomBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: "auto",
-    marginBottom: 8,
-  },
+  flexDirection: "row",
+  alignItems: "center",
+  marginTop: 8,
+  marginBottom: 10,
+},
+
   primaryButton: {
     flex: 1,
     height: 52,
@@ -709,8 +799,10 @@ successAmount: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: HELP_IO_PURPLE,
+    backgroundColor:  HELP_IO_BLACK,
     alignItems: "center",
     justifyContent: "center",
   },
 });
+
+

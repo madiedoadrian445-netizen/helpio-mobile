@@ -10,16 +10,16 @@ import {
   Platform,
   Image,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../ThemeContext";
 import { useRoute, useFocusEffect } from "@react-navigation/native";
 import { api } from "../config/api";
-import SubscriptionsIcon from "../../assets/images/subscriptions.png";
 import InvoicesListScreen from "./InvoicesListScreen";
-
-
+import { Swipeable } from "react-native-gesture-handler";
+import useAuthStore from "../store/auth";
 
 
 export default function InvoicesHomeScreen({ navigation }) {
@@ -29,11 +29,13 @@ export default function InvoicesHomeScreen({ navigation }) {
   const refreshKey = route.params?.refreshInvoices;
   const initialTab = route.params?.returnToTab || "dashboard";
   const [tab, setTab] = useState(initialTab);
-
+const user = useAuthStore((state) => state.user);
+const providerId = user?.providerId;
   const [recentInvoices, setRecentInvoices] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
-
+const [allInvoices, setAllInvoices] = useState([]);
   const isLight = !darkMode;
+const canvasColor = isLight ? "#EEF1F6" : "#0B0D12";
 
   /* --------------------------------------------------
      FETCH RECENT INVOICES (LIVE DATA — REFRESH SAFE)
@@ -51,7 +53,8 @@ export default function InvoicesHomeScreen({ navigation }) {
             const sorted = [...(res.data.invoices || [])].sort(
               (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
             );
-            setRecentInvoices(sorted.slice(0, 5));
+          setAllInvoices(sorted);
+setRecentInvoices(sorted.slice(0, 5));
           }
         } catch (err) {
           console.log(
@@ -125,11 +128,62 @@ export default function InvoicesHomeScreen({ navigation }) {
     );
   };
 
-  const renderDashboard = () => (
-    <ScrollView
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: 80 }}
+
+const confirmDelete = (invoiceId) => {
+  Alert.alert(
+    "Delete Invoice",
+    "Are you sure you want to delete this invoice?",
+    [
+      {
+        text: "Discard",
+        style: "cancel",
+      },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await api.delete(`/api/invoices/${invoiceId}`);
+
+            setRecentInvoices((prev) =>
+              prev.filter((inv) => inv._id !== invoiceId)
+            );
+
+            setAllInvoices((prev) =>
+              prev.filter((inv) => inv._id !== invoiceId)
+            );
+          } catch (err) {
+            console.log(
+              "Delete invoice error:",
+              err.response?.data || err
+            );
+          }
+        },
+      },
+    ]
+  );
+};
+
+const renderRightActions = (invoiceId) => (
+  <View style={styles.deleteAction}>
+    <TouchableOpacity
+      onPress={() => confirmDelete(invoiceId)}
+      activeOpacity={0.6}
     >
+      <Ionicons name="trash-outline" size={22} color="#FF3B30" />
+    </TouchableOpacity>
+  </View>
+);
+  const renderDashboard = () => (
+   <ScrollView
+  showsVerticalScrollIndicator={false}
+  contentContainerStyle={{ paddingBottom: 80 }}
+>
+  {/* THIS is the missing layer */}
+  <View style={{ paddingHorizontal: 22 }}>
+
+
+
       {/* Top Stats Card */}
       <View
         style={[
@@ -214,72 +268,70 @@ export default function InvoicesHomeScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Subscriptions + Dashboard Row */}
-      <View style={[styles.quickRow, { marginTop: 16 }]}>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={[
-            styles.quickCard,
-            {
-              backgroundColor: isLight
-                ? "rgba(255,255,255,0.9)"
-                : "rgba(28,28,30,0.9)",
-              shadowOpacity: isLight ? 0.1 : 0,
-              alignItems: "center",
-              justifyContent: "center",
-              paddingVertical: 18,
-            },
-          ]}
-          onPress={() => navigation.navigate("SubscriptionPlans")}
-        >
-          <Ionicons
-            name="repeat-outline"
-            size={22}
-            color="#5856D6"
-            style={{ marginBottom: 10 }}
-          />
-          <Text style={[styles.quickTitle, { color: theme.text, marginTop: 4 }]}>
-            Create Subscriptions
-          </Text>
-          <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
-            Plans & billing
-          </Text>
-          <Image
-            source={SubscriptionsIcon}
-            style={{ width: 28, height: 28, marginTop: 10 }}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
+     {/* Subscriptions + Dashboard Row */}
+<View style={[styles.quickRow, { marginTop: 16 }]}>
+  
+ {/* Payouts & Balances */}
+<TouchableOpacity
+  activeOpacity={0.9}
+ onPress={() =>
+  navigation.navigate("PayoutsBalancesScreen", {
+    providerId,
+  })
+}
+  style={[
+    styles.quickCard,
+    styles.quickCardLarge,
+    {
+      backgroundColor: isLight
+        ? "rgba(255,255,255,0.9)"
+        : "rgba(28,28,30,0.9)",
+      shadowOpacity: isLight ? 0.1 : 0,
+    },
+  ]}
+>
+  <View style={styles.quickContent}>
+    <Ionicons name="wallet-outline" size={24} color="#007AFF" />
+    <Text style={[styles.quickTitle, { color: theme.text }]}>
+      Payouts & Balances
+    </Text>
+    <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
+      Transfers & earnings
+    </Text>
+  </View>
+</TouchableOpacity>
 
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => navigation.navigate("AnalyticsDashboard")}
-          style={[
-            styles.quickCard,
-            {
-              backgroundColor: isLight
-                ? "rgba(255,255,255,0.9)"
-                : "rgba(28,28,30,0.9)",
-              shadowOpacity: isLight ? 0.1 : 0,
-              alignItems: "center",
-              justifyContent: "center",
-            },
-          ]}
-        >
-          <Ionicons
-            name="stats-chart-outline"
-            size={28}
-            color="#007AFF"
-            style={{ marginBottom: 6 }}
-          />
-          <Text style={[styles.quickTitle, { color: theme.text }]}>
-            Dashboard
-          </Text>
-          <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
-            Performance & revenue
-          </Text>
-        </TouchableOpacity>
-      </View>
+
+
+
+  {/* Dashboard */}
+  <TouchableOpacity
+    activeOpacity={0.9}
+    onPress={() => navigation.navigate("AnalyticsDashboard")}
+   style={[
+  styles.quickCard,
+  styles.quickCardLarge, // ⭐ makes them bigger
+  {
+    backgroundColor: isLight
+      ? "rgba(255,255,255,0.9)"
+      : "rgba(28,28,30,0.9)",
+    shadowOpacity: isLight ? 0.1 : 0,
+  },
+]}
+
+  >
+    <View style={styles.quickContent}>
+      <Ionicons name="stats-chart-outline" size={24} color="#007AFF" />
+      <Text style={[styles.quickTitle, { color: theme.text }]}>
+        Dashboard
+      </Text>
+      <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
+        Performance & revenue
+      </Text>
+    </View>
+  </TouchableOpacity>
+
+</View>
 
       {/* Recent Invoices */}
       <View style={{ marginTop: 32 }}>
@@ -305,66 +357,70 @@ export default function InvoicesHomeScreen({ navigation }) {
               },
             ]}
           >
-            {recentInvoices.map((inv, idx) => {
-              const isLast = idx === recentInvoices.length - 1;
-              const statusColor =
-                inv.status === "PAID"
-                  ? "#34C759"
-                  : inv.status === "OVERDUE"
-                  ? "#FF3B30"
-                  : "#FFCC00";
+           {recentInvoices.map((inv, idx) => {
+  const isLast = idx === recentInvoices.length - 1;
+  const statusColor =
+    inv.status === "PAID"
+      ? "#34C759"
+      : inv.status === "OVERDUE"
+      ? "#FF3B30"
+      : "#FFCC00";
 
-              return (
-             
-  <View key={inv._id}>
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={() =>
-        navigation.navigate("InvoicePreview", {
-          invoiceId: inv._id,
-        })
-      }
-    >
-      <View style={styles.invoiceRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.invoiceId, { color: theme.text }]}>
-            {inv.invoiceNumber || `INV-${inv._id.slice(-4)}`}
-          </Text>
-          <Text
-            style={[
-              styles.invoiceClient,
-              { color: theme.subtleText },
-            ]}
-          >
-           {inv.customerSnapshot?.name || "Unknown client"}
-          </Text>
-        </View>
+  return (
+    <View key={inv._id}>
+      <Swipeable
+        renderRightActions={() => renderRightActions(inv._id)}
+        overshootRight={false}
+      >
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() =>
+            navigation.navigate("InvoicePreview", {
+              invoiceId: inv._id,
+            })
+          }
+        >
+          <View style={styles.invoiceRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.invoiceId, { color: theme.text }]}>
+                {inv.invoiceNumber || `INV-${inv._id.slice(-4)}`}
+              </Text>
+              <Text
+                style={[
+                  styles.invoiceClient,
+                  { color: theme.subtleText },
+                ]}
+              >
+                {inv.customerSnapshot?.name || "Unknown client"}
+              </Text>
+            </View>
 
-        <View style={{ alignItems: "flex-end" }}>
-          <Text style={[styles.invoiceTotal, { color: theme.text }]}>
-            ${Number(inv.total).toFixed(2)}
-          </Text>
-          <Text
-            style={[
-              styles.invoiceStatus,
-              { color: statusColor },
-            ]}
-          >
-            {inv.status}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={[styles.invoiceTotal, { color: theme.text }]}>
+                ${Number(inv.total).toFixed(2)}
+              </Text>
+              <Text
+                style={[
+                  styles.invoiceStatus,
+                  { color: statusColor },
+                ]}
+              >
+                {inv.status}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Swipeable>
 
-    {!isLast && <View style={styles.divider} />}
-  </View>
-);
-
-              
-            })}
+      {!isLast && <View style={styles.divider} />}
+    </View>
+  );
+})}
           </View>
         )}
       </View>
+      </View>
+
     </ScrollView>
   );
 
@@ -374,42 +430,61 @@ export default function InvoicesHomeScreen({ navigation }) {
   content = <InvoicesListScreen refreshKey={refreshKey} />;
 
 
-  return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
-      <BlurView
-        intensity={darkMode ? 15 : 30}
-        tint={theme.blurTint}
-        style={StyleSheet.absoluteFill}
-      />
 
-      <View style={styles.headerWrap}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Invoices
-        </Text>
+
+
+  
+    return (
+  <SafeAreaView style={[styles.safe, { backgroundColor: canvasColor }]}>
+
+    {/* Ambient depth (makes cards pop + removes boxed look) */}
+    <View
+      pointerEvents="none"
+      style={[
+        StyleSheet.absoluteFill,
+        {
+          backgroundColor: isLight
+            ? "rgba(0,0,0,0.045)"
+            : "rgba(0,0,0,0.32)",
+        },
+      ]}
+    />
+
+    <BlurView
+      intensity={darkMode ? 12 : 22}
+      tint={theme.blurTint}
+      style={StyleSheet.absoluteFill}
+    />
+
+    <View style={styles.headerWrap}>
+      <Text style={[styles.headerTitle, { color: "#00A6FF" }]}>
+        BusinessPlace
+      </Text>
+    </View>
+
+    <View style={styles.segmentWrap}>
+      <View
+        style={[
+          styles.segmentBackground,
+          {
+            backgroundColor: isLight
+              ? "rgba(118,118,128,0.12)"
+              : "rgba(99,99,102,0.5)",
+          },
+        ]}
+      >
+        {renderSegmentButton("dashboard", "Dashboard")}
+        {renderSegmentButton("clients", "Clients")}
+        {renderSegmentButton("invoices", "Invoices")}
+        {renderSegmentButton("builder", "Builder")}
       </View>
+    </View>
 
-      <View style={styles.segmentWrap}>
-        <View
-          style={[
-            styles.segmentBackground,
-            {
-              backgroundColor: isLight
-                ? "rgba(118,118,128,0.12)"
-                : "rgba(99,99,102,0.5)",
-            },
-          ]}
-        >
-          {renderSegmentButton("dashboard", "Dashboard")}
-          {renderSegmentButton("clients", "Clients")}
-          {renderSegmentButton("invoices", "Invoices")}
-          {renderSegmentButton("builder", "Builder")}
-        </View>
-      </View>
-
-      <View style={styles.content}>{content}</View>
-    </SafeAreaView>
-  );
+    <View style={styles.content}>{content}</View>
+  </SafeAreaView>
+);
 }
+
 
 /* ---------- STYLES (UNCHANGED) ---------- */
 const styles = StyleSheet.create({
@@ -418,12 +493,13 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "ios" ? 8 : 20,
     paddingHorizontal: 22,
   },
-  headerTitle: {
-    fontSize: 30,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    marginBottom: 10,
-  },
+ headerTitle: {
+  fontSize: 24,        // ↓ from 30
+  fontWeight: "800",   // SAME
+  letterSpacing: -0.4, // ↓ proportionally from -0.5
+  marginBottom: 12,     // ↓ from 10
+},
+
   segmentWrap: { paddingHorizontal: 22, marginBottom: 8 },
   segmentBackground: { flexDirection: "row", borderRadius: 12, padding: 3 },
   segmentItem: {
@@ -434,11 +510,33 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   segmentLabel: { fontSize: 13, fontWeight: "600" },
-  content: { flex: 1, paddingHorizontal: 22, paddingTop: 8 },
+  content: {
+  flex: 1,
+  paddingTop: 8,
+},
+
+quickContent: {
+  flex: 1,
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+},
+quickCardLarge: {
+  height: 140, // ⭐ bigger than top cards
+},
+
+
+deleteAction: {
+  width: 70,                // controls distance from row
+  justifyContent: "center",
+  alignItems: "center",
+},
+
+
   card: {
     borderRadius: 18,
     padding: 18,
-    shadowColor: "#000",
+    shadowColor: "#00bfffff",
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 12,
     marginBottom: 22,
@@ -471,7 +569,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 2,
-    shadowColor: "#000",
+    shadowColor: "#000000ff",
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 8,
   },
@@ -486,3 +584,4 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 });
+
