@@ -3,6 +3,7 @@
     "name": "helpio-mobile",
     "slug": "helpio-mobile",
     "version": "1.0.0",
+     "scheme": "helpio",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -32,9 +33,16 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      "expo-web-browser",
-      "expo-secure-store"
-    ]
+   "plugins": [
+  "expo-web-browser",
+  "expo-secure-store",
+  [
+    "@stripe/stripe-react-native",
+    {
+      "merchantIdentifier": "merchant.com.helpio",
+      "enableGooglePay": false
+    }
+  ]
+]
   }
 }

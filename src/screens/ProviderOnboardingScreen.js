@@ -2,250 +2,557 @@ import React, { useState } from "react";
 import {
   View,
   Text,
+  StyleSheet,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
-  ActivityIndicator,
+  SafeAreaView,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import HelpioGlobeIcon from "../components/HelpioGlobeIcon";
+import { Animated, Dimensions, Easing } from "react-native";
+import VerifyIdentityIDScanScreen from "./VerifyIdentityIDScanScreen";
+import { useStripe } from "@stripe/stripe-react-native";
 
-import { useTheme } from "../ThemeContext";
-import { registerProvider } from "../api/auth";
-import useAuthStore from "../store/auth";
+const HELPIO_BLUE = "#00A6FF";
+const { width } = Dimensions.get("window");
 
-const HELP_BLUE = "#00A6FF";
+/* ---------------- DATA ---------------- */
 
-export default function ProviderOnboardingScreen() {
-  const { theme } = useTheme();
+const LANGUAGES = [
+  "English",
+  "Español",
+  "Deutsch",
+  "Français",
+  "Italiano",
+  "Português",
+  "Русский",
+  "简体中文",
+  "繁體中文",
+  "日本語",
+  "한국어",
+];
 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [businessName, setBusinessName] = useState("");
+const STEPS = [
+  { title: "Language" },
+  { title: "Helpio BusinessPlace ID" },
+  { title: "Business name", subtitle: "Displayed to customers." },
+  { title: "Business location", subtitle: "Enter your ZIP code." },
+  { title: "Verify your phone", subtitle: "We’ll send a verification code." },
+  { title: "Verify your identity" }
+];
 
-  const [secure, setSecure] = useState(true);
-  const [loading, setLoading] = useState(false);
+/* ---------------- SCREEN ---------------- */
 
-  const handleRegisterProvider = async () => {
-    if (!name || !email || !password || !businessName) {
-      Alert.alert("Missing Fields", "Please fill out all fields.");
+export default function ProviderOnboardingScreen({ navigation }) {
+  const [step, setStep] = useState(0);
+  const [verifying, setVerifying] = useState(false);
+const { presentIdentityVerificationSheet } = useStripe();
+  const translateX = React.useRef(new Animated.Value(0)).current;
+
+
+
+
+const startStripeVerification = async () => {
+  if (verifying) return;
+
+  setVerifying(true);
+
+  try {
+    const response = await fetch(
+      "https://helpio-backend.onrender.com/api/stripe/create-verification-session",
+      { method: "POST" }
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to create verification session");
+    }
+
+    const { clientSecret } = await response.json();
+
+   const { error } = await presentIdentityVerificationSheet({
+  verificationSessionClientSecret: clientSecret,
+});
+
+    if (error) {
+      console.log("Stripe verification error:", error);
       return;
     }
 
-    setLoading(true);
+    animateNext();
 
-    try {
-      const data = await registerProvider({
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        password: password.trim(),
-        companyName: businessName.trim(),
-      });
+  } catch (err) {
+    console.log("Verification error:", err);
+  } finally {
+    setVerifying(false);
+  }
+};
 
-      if (!data?.token || !data?.user) {
-        throw new Error("Invalid provider register response");
-      }
 
-      await useAuthStore.getState().setAuth({
-        token: data.token,
-        user: data.user,
-        provider: { _id: data.user.providerId },
-      });
 
-      setLoading(false);
-    } catch (err) {
-      setLoading(false);
+ const animateNext = () => {
+  if (step === STEPS.length - 1) {
+  navigation.replace("MainTabs");
+  return;
+}
 
-      if (err?.response?.status === 409) {
-        Alert.alert("Email already in use", "Try logging in instead.");
-        return;
-      }
+  Animated.sequence([
+    Animated.timing(translateX, {
+      toValue: -width,
+      duration: 320,
+      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      useNativeDriver: true,
+    }),
+  ]).start(() => {
+    translateX.setValue(width);
+    setStep(prev => prev + 1);
 
-      Alert.alert(
-        "Provider Registration Failed",
-        err?.response?.data?.message || err.message || "Unable to create provider account"
-      );
-    }
-  };
+    Animated.timing(translateX, {
+      toValue: 0,
+      duration: 320,
+      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      useNativeDriver: true,
+    }).start();
+  });
+};
+
+
+
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}> 
+    <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
-        style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.inner}
       >
-        <View style={styles.center}>
-          {/* ICON */}
-          <View style={styles.logoWrap}>
-            <Ionicons name="briefcase" size={36} color="#fff" />
-          </View>
+        {/* Brand */}
+        <Text style={styles.brand}></Text>
 
-          {/* TITLE */}
-          <Text style={[styles.title, { color: theme.text }]}> 
-            Become a{`\n`}Helpio Provider
-          </Text>
-
-          {/* NAME */}
-          <TextInput
-            placeholder="Full Name"
-            placeholderTextColor="#8E8E93"
-            value={name}
-            onChangeText={setName}
-            style={styles.input}
-          />
-
-          {/* EMAIL */}
-          <TextInput
-            placeholder="Business Email"
-            placeholderTextColor="#8E8E93"
-            value={email}
-            onChangeText={setEmail}
-            style={styles.input}
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
-
-          {/* BUSINESS NAME */}
-          <TextInput
-            placeholder="Business Name"
-            placeholderTextColor="#8E8E93"
-            value={businessName}
-            onChangeText={setBusinessName}
-            style={styles.input}
-          />
-
-          {/* PASSWORD */}
-          <View style={styles.passwordWrap}>
-            <TextInput
-              placeholder="Password"
-              placeholderTextColor="#8E8E93"
-              secureTextEntry={secure}
-              value={password}
-              onChangeText={setPassword}
-              style={styles.passwordInput}
-              autoCapitalize="none"
+        {/* Progress (hidden on language step) */}
+        {step !== 0 && (
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${((step + 1) / STEPS.length) * 100}%` },
+              ]}
             />
-            <TouchableOpacity onPress={() => setSecure(!secure)}>
-              <Ionicons
-                name={secure ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color="#8E8E93"
-              />
-            </TouchableOpacity>
           </View>
+        )}
 
-          {/* CREATE PROVIDER BUTTON */}
-          <TouchableOpacity
-            style={styles.continueBtn}
-            onPress={handleRegisterProvider}
-            disabled={loading}
-            activeOpacity={0.9}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.continueText}>Create Provider Account</Text>
-            )}
-          </TouchableOpacity>
+       <Animated.View
+  style={[
+    styles.content,
+    { transform: [{ translateX }] },
+  ]}
+>
+  {step === 0 ? (
+  <LanguageStep onSelect={animateNext} />
 
-          {/* NOTE */}
-          <Text style={styles.note}>
-            Verification & payouts will be completed later.
-          </Text>
-        </View>
+) : step === 1 ? (
+  <AppleIDInput />
+
+) : step === 5 ? (
+ <VerifyIdentityIDScanScreen
+  onContinue={startStripeVerification}
+  verifying={verifying}
+/>
+
+
+) : (
+  <>
+    <Text style={styles.title}>{STEPS[step].title}</Text>
+    {STEPS[step].subtitle && (
+      <Text style={styles.subtitle}>{STEPS[step].subtitle}</Text>
+    )}
+    {renderInput(step)}
+  </>
+)}
+
+
+</Animated.View>
+
+
+        {/* Continue */}
+      {step !== 0 && step !== 5 && (
+
+  <TouchableOpacity style={styles.continueBtn} onPress={animateNext}>
+    <Text style={styles.continueText}>CREATE ID</Text>
+  </TouchableOpacity>
+)}
+
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
+/* ---------------- LANGUAGE STEP ---------------- */
+
+function LanguageStep({ onSelect }) {
+  return (
+    <View style={styles.languageWrap}>
+      <View style={{ alignItems: "center", marginBottom: 22 }}>
+        <HelpioGlobeIcon size={68} color={HELPIO_BLUE} />
+      </View>
+
+      <View style={styles.languageGroup}>
+        {LANGUAGES.map((lang, index) => (
+          <TouchableOpacity
+            key={lang}
+            style={[
+              styles.languageRow,
+              index === LANGUAGES.length - 1 && { borderBottomWidth: 0 },
+            ]}
+            activeOpacity={0.6}
+            onPress={onSelect}
+          >
+            <Text style={styles.languageText}>{lang}</Text>
+            <Text style={styles.chevron}>›</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/* ---------------- APPLE ID INPUT ---------------- */
+
+function AppleIDInput() {
+  return (
+    <View>
+      <Text style={styles.title}>Helpio BusinessPlace ID</Text>
+
+      <Text style={styles.subtitle}>
+        Your account is used to access provider tools, payments, and secure
+        services.
+      </Text>
+
+      {/* First + Last Name */}
+      <View style={styles.row}>
+        <View style={[styles.appleInputWrap, styles.half]}>
+          <TextInput
+            placeholder="First name"
+            placeholderTextColor="#8E8E93"
+            style={styles.appleInput}
+          />
+        </View>
+
+        <View style={[styles.appleInputWrap, styles.half]}>
+          <TextInput
+            placeholder="Last name"
+            placeholderTextColor="#8E8E93"
+            style={styles.appleInput}
+          />
+        </View>
+      </View>
+
+      {/* Email */}
+      <View style={styles.appleInputWrap}>
+        <TextInput
+          placeholder="Email address"
+          placeholderTextColor="#8E8E93"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          style={styles.appleInput}
+        />
+      </View>
+
+      {/* Password */}
+      <View style={styles.appleInputWrap}>
+        <TextInput
+          placeholder="Password"
+          placeholderTextColor="#8E8E93"
+          secureTextEntry
+          style={styles.appleInput}
+        />
+      </View>
+
+      {/* Phone */}
+      <View style={styles.appleInputWrap}>
+        <TextInput
+          placeholder="Phone number"
+          placeholderTextColor="#8E8E93"
+          keyboardType="phone-pad"
+          style={styles.appleInput}
+        />
+      </View>
+
+      <Text style={styles.appleFootnote}>
+        Your Helpio BusinessPlace ID is used to access provider tools, payments,
+        subscriptions, and secure services.
+      </Text>
+    </View>
+  );
+}
+
+/* ---------------- OTHER INPUTS ---------------- */
+
+function renderInput(step) {
+  switch (step) {
+    case 2:
+  return (
+    <View>
+      <View style={styles.appleInputWrap}>
+        <TextInput
+          placeholder="Business name"
+          placeholderTextColor="#8E8E93"
+          autoCapitalize="words"
+          style={styles.appleInput}
+        />
+      </View>
+
+      <Text style={styles.appleFootnote}>
+        Your business name will be displayed on your listings by default to help
+        customers recognize and trust your services.
+      </Text>
+    </View>
+  );
+
+
+   case 3:
+  return (
+    <View>
+      <View style={styles.appleInputWrap}>
+        <TextInput
+          placeholder="ZIP code"
+          placeholderTextColor="#8E8E93"
+          keyboardType="numeric"
+          style={styles.appleInput}
+        />
+      </View>
+
+      <Text style={styles.appleFootnote}>
+        Your ZIP code helps clients discover your business within their area and
+        allows your services to appear in nearby searches.
+      </Text>
+    </View>
+  );
+
+
+    case 4:
+  return (
+    <View>
+      {/* Phone Number */}
+      <View style={styles.appleInputWrap}>
+        <TextInput
+          placeholder="Phone number"
+          placeholderTextColor="#8E8E93"
+          keyboardType="phone-pad"
+          style={styles.appleInput}
+        />
+      </View>
+
+      {/* Verification Code */}
+      <View style={styles.appleInputWrap}>
+        <TextInput
+          placeholder="Verification code"
+          placeholderTextColor="#8E8E93"
+          keyboardType="numeric"
+          style={styles.appleInput}
+        />
+      </View>
+
+      <Text style={styles.appleFootnote}>
+        Verifying your phone number helps Helpio maintain a trusted marketplace,
+        prevent fraud, and ensure safe communication between providers and
+        clients.
+      </Text>
+    </View>
+  );
+
+
+    
+
+    default:
+      return null;
+  }
+}
+
+
+function Input(props) {
+  return (
+    <TextInput
+      {...props}
+      style={styles.input}
+      placeholderTextColor="#9CA3AF"
+    />
+  );
+}
+
+/* ---------------- STYLES ---------------- */
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  flex: { flex: 1 },
+  container: {
+  flex: 1,
+  backgroundColor: "#FFFFFF",
+},
 
-  center: {
-    flex: 1,
-    alignItems: "center",
-    paddingHorizontal: 28,
-    justifyContent: "center",
-  },
 
-  logoWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: HELP_BLUE,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 24,
+  inner: {
+  flex: 1,
+  backgroundColor: "#FFFFFF",
+  paddingTop: Platform.OS === "ios" ? 56 : 40,
+  overflow: "hidden",
+},
 
-    shadowColor: HELP_BLUE,
-    shadowOpacity: 0.45,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 12,
-  },
 
-  title: {
-    fontSize: 30,
-    fontWeight: "700",
-    textAlign: "center",
-    marginBottom: 24,
-  },
-
-  input: {
-    width: "100%",
-    height: 56,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#D1D1D6",
-    paddingHorizontal: 16,
-    fontSize: 16,
-    backgroundColor: "#fff",
-    marginBottom: 12,
-  },
-
-  passwordWrap: {
-    width: "100%",
-    height: 56,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#D1D1D6",
-    backgroundColor: "#fff",
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  brand: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: HELPIO_BLUE,
     marginBottom: 20,
   },
 
-  passwordInput: { flex: 1, fontSize: 16 },
+  progressTrack: {
+    height: 2,
+    backgroundColor: "rgba(0,0,0,0.12)",
+    marginBottom: 32,
+  },
+
+  progressFill: {
+    height: "100%",
+    backgroundColor: HELPIO_BLUE,
+  },
+
+ content: {
+  flex: 1,
+  width: width,
+  paddingHorizontal: 28, // 🔥 MOVE IT HERE
+},
+
+
+ title: {
+  fontFamily: Platform.OS === "ios" ? "SFProDisplay-Semibold" : undefined,
+  fontSize: 28,
+  fontWeight: Platform.OS === "ios" ? "600" : "bold",
+  letterSpacing: -0.4,
+  lineHeight: 34,
+  color: "#000",
+  marginBottom: 6,
+},
+
+
+ subtitle: {
+  fontFamily: Platform.OS === "ios" ? "SFProText-Regular" : undefined,
+  fontSize: 16,
+  fontWeight: "400",
+  letterSpacing: -0.2,
+  lineHeight: 22,
+  color: "#3C3C4399", // iOS secondary label
+  marginBottom: 24,
+},
+
+
+  input: {
+    height: 52,
+    borderBottomWidth: 1,
+    borderColor: "#D1D5DB",
+    fontSize: 17,
+    marginBottom: 28,
+    color: "#111827",
+  },
+
+  info: {
+    fontSize: 16,
+    color: "#374151",
+    lineHeight: 24,
+    marginTop: 10,
+  },
 
   continueBtn: {
-    width: "100%",
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: HELP_BLUE,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
+  height: 48,                  // 🔽 slightly shorter
+  borderRadius: 24,            // 🔥 perfect pill
+  backgroundColor: HELPIO_BLUE,
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: Platform.OS === "ios" ? 28 : 18,
 
-    shadowColor: HELP_BLUE,
-    shadowOpacity: 0.5,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
+  marginHorizontal: 28,        // 🔥 NOT full width (Apple style)
+},
+
+
+  continueText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "600",
   },
 
-  continueText: { color: "#fff", fontSize: 17, fontWeight: "600" },
+  /* -------- Apple ID Input -------- */
 
-  note: {
+  appleInputWrap: {
+  height: 52,
+  borderRadius: 12,
+  backgroundColor: "#FFFFFF",
+  borderWidth: 1,
+  borderColor: "#D1D1D6",
+  justifyContent: "center",
+  paddingHorizontal: 14,
+  marginBottom: 10,
+},
+
+ appleInput: {
+  fontFamily: Platform.OS === "ios" ? "SFProText-Regular" : undefined,
+  fontSize: 17,
+  letterSpacing: -0.2,
+  color: "#000",
+},
+
+
+  appleLink: {
+    fontSize: 14,
+    color: HELPIO_BLUE,
     marginTop: 8,
-    fontSize: 13,
-    color: "#8E8E93",
-    textAlign: "center",
+    marginBottom: 18,
+  },
+
+  appleFootnote: {
+  fontFamily: Platform.OS === "ios" ? "SFProText-Regular" : undefined,
+  fontSize: 12,
+  letterSpacing: 0,
+  lineHeight: 16,
+  color: "#3C3C434D", // iOS tertiary label
+},
+
+
+  /* -------- Language -------- */
+
+  languageWrap: {
+    marginTop: 8,
+  },
+
+  languageGroup: {
+  backgroundColor: "#f8f6f6d2",
+  borderRadius: 16,
+  overflow: "hidden",
+  borderWidth: StyleSheet.hairlineWidth,
+  borderColor: "#D1D1D6",
+},
+
+
+  languageRow: {
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: "#dedee0ff",
+  },
+
+  languageText: {
+  fontFamily: Platform.OS === "ios" ? "SFProText-Regular" : undefined,
+  fontSize: 17,
+  letterSpacing: -0.2,
+  color: "#000",
+},
+
+
+  chevron: {
+    fontSize: 22,
+    color: "#C7C7CC",
   },
 });
+
+
+
+

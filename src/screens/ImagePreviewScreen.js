@@ -2,12 +2,11 @@
 import React from "react";
 import {
   View,
-  Image,
   StyleSheet,
   TouchableOpacity,
   Dimensions,
 } from "react-native";
-import { SharedElement } from "react-navigation-shared-element";
+import Animated from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 
 const { width, height } = Dimensions.get("window");
@@ -25,23 +24,16 @@ export default function ImagePreviewScreen({ route, navigation }) {
         <Ionicons name="close" size={30} color="#fff" />
       </TouchableOpacity>
 
-      {/* Shared element animated image */}
-      <SharedElement id={imageUri}>
-        <Image
-          source={{ uri: imageUri }}
-          style={styles.image}
-          resizeMode="contain"
-        />
-      </SharedElement>
+      {/* Reanimated shared transition */}
+      <Animated.Image
+        sharedTransitionTag={imageUri}
+        source={{ uri: imageUri }}
+        style={styles.image}
+        resizeMode="contain"
+      />
     </View>
   );
 }
-
-// Enable shared element transition
-ImagePreviewScreen.sharedElements = (route) => {
-  const { imageUri } = route.params;
-  return [imageUri];
-};
 
 const styles = StyleSheet.create({
   container: {

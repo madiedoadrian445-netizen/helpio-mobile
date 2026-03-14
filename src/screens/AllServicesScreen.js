@@ -5,11 +5,10 @@ import {
   Text,
   StyleSheet,
   ActivityIndicator,
-  Image,
   TouchableOpacity,
   Platform,
   Alert,
-  Animated,
+ Animated as RNAnimated,
   Modal,
   TextInput,
   KeyboardAvoidingView,
@@ -29,7 +28,7 @@ import ServiceCardSkeleton from "../components/ServiceCardSkeleton";
 import { DeviceEventEmitter } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import FeedStars from "../components/FeedStars";
-
+import Animated from "react-native-reanimated";
 
 
 const HELP_IO_BLUE = "#00A6FF";
@@ -61,7 +60,7 @@ const [longitude, setLongitude] = useState(null);
 
 
 const isFetchingRef = useRef(false);
-const pullY = useRef(new Animated.Value(0)).current;
+const pullY = useRef(new RNAnimated.Value(0)).current;
 const isRefreshingRef = useRef(false);
 const armedRef = useRef(false);
 const cachedCoordsRef = useRef(null);
@@ -286,36 +285,31 @@ const triggerHandshakeRefresh = () => {
 
 
 
+RNAnimated.sequence([
+  RNAnimated.timing(pullY, {
+    toValue: -120,
+    duration: 180,
+    useNativeDriver: true,
+  }),
+  RNAnimated.sequence([
+    RNAnimated.timing(pullY, { toValue: -135, duration: 90, useNativeDriver: true }),
+    RNAnimated.timing(pullY, { toValue: -120, duration: 90, useNativeDriver: true }),
+    RNAnimated.timing(pullY, { toValue: -135, duration: 90, useNativeDriver: true }),
+    RNAnimated.timing(pullY, { toValue: -120, duration: 90, useNativeDriver: true }),
+  ]),
+]).start(async () => {
+  setRefreshing(true);
 
-  Animated.sequence([
-    Animated.timing(pullY, {
-      toValue: -120,
-      duration: 180,
-      useNativeDriver: true,
-    }),
-    Animated.sequence([
-      Animated.timing(pullY, { toValue: -135, duration: 90, useNativeDriver: true }),
-      Animated.timing(pullY, { toValue: -120, duration: 90, useNativeDriver: true }),
-      Animated.timing(pullY, { toValue: -135, duration: 90, useNativeDriver: true }),
-      Animated.timing(pullY, { toValue: -120, duration: 90, useNativeDriver: true }),
-    ]),
-  ]).start(async () => {
-    setRefreshing(true);
- await fetchServices(1, true, true); // 🔥 forces new V1 session seed
+  await fetchServices(1, true, true);
 
-
-
-    Animated.timing(pullY, {
-      toValue: 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start(() => {
-  isRefreshingRef.current = false;
-
-
-});
-
+  RNAnimated.timing(pullY, {
+    toValue: 0,
+    duration: 220,
+    useNativeDriver: true,
+  }).start(() => {
+    isRefreshingRef.current = false;
   });
+});
 };
 
 
@@ -553,7 +547,7 @@ return (
     </BlurView>
 
 {/* HANDSHAKE REFRESH OVERLAY */}
-<Animated.View
+<RNAnimated.View
   pointerEvents="none"
   style={{
     position: "absolute",
@@ -572,7 +566,7 @@ return (
     }),
   }}
 >
-  <Animated.Image
+<RNAnimated.Image
     source={require("../assets/refresh/hand_left.png")}
     style={{
       width: 42,
@@ -590,7 +584,7 @@ return (
     }}
   />
 
-  <Animated.Image
+ <RNAnimated.Image
     source={require("../assets/refresh/hand_right.png")}
     style={{
       width: 42,
@@ -608,7 +602,7 @@ return (
       ],
     }}
   />
-</Animated.View>
+</RNAnimated.View>
 
 
 
@@ -921,13 +915,14 @@ const buildUrl = (path) => {
 
 console.log("IMAGE URL:", imageUrl);
 
-  return (
-    <Image
-      source={{ uri: imageUrl }}
-      style={styles.image}
-      resizeMode="cover"
-    />
-  );
+return (
+  <Animated.Image
+    sharedTransitionTag={`service-${service._id}`}
+    source={{ uri: imageUrl }}
+    style={styles.image}
+    resizeMode="cover"
+  />
+);
 })()}
   
   

@@ -1,5 +1,5 @@
 // src/screens/AnalyticsDashboardScreen.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   SafeAreaView,
   View,
@@ -13,11 +13,19 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
+import { RefreshControl } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import { api } from "../config/api";
+
+
 import useAuthStore from "../store/auth";
 import Animated, {
   useSharedValue,
   withTiming,
   Easing,
+  useAnimatedStyle,
 } from "react-native-reanimated";
 import { useTheme } from "../ThemeContext";
 const HELP_BLUE = "#00A6FF";
@@ -28,10 +36,14 @@ export default function AnalyticsDashboardScreen({ navigation }) {
   const { darkMode, theme } = useTheme();
   const isLight = !darkMode;
   const insets = useSafeAreaInsets();
-
+const token = useAuthStore((state) => state.token);
 const user = useAuthStore((state) => state.user);
+const isHydrated = useAuthStore((state) => state.isHydrated);
+const [refreshing, setRefreshing] = useState(false);
 const providerId = user?.providerId;
+
 const [analytics, setAnalytics] = useState({
+  
   salesToday: 0,
   invoicesToday: 0,
   subscriptions: 0,
@@ -41,24 +53,120 @@ const [analytics, setAnalytics] = useState({
   revenueData: [],
 });
 
+const [lastUpdated, setLastUpdated] = useState(Date.now());
+
+
+ const loadAnalytics = async () => {
+  try {
+
+    const res = await api.get("/api/analytics");
+
+console.log("Analytics API response:", res.data);
+
+
+if (res.data.success) {
+  setAnalytics(res.data.analytics);
+  setLastUpdated(Date.now());
+}
+
+  } catch (err) {
+    console.log("Analytics load error:", err);
+  }
+};
+
+const getRelativeTime = () => {
+  const seconds = Math.floor((Date.now() - lastUpdated) / 1000);
+
+  if (seconds < 60) return `${seconds}s ago`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+};
+
+
+
   // Shared animation value for the bars (0 → 1)
   const progress = useSharedValue(0);
 
-  useEffect(() => {
-    progress.value = withTiming(1, {
-      duration: 900,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [progress]);
+ useEffect(() => {
+  progress.value = 0;
+
+  progress.value = withTiming(1, {
+    duration: 900,
+    easing: Easing.out(Easing.cubic),
+  });
+}, [analytics.revenueData]);
 
  
+
+
+
+useEffect(() => {
+
+  if (!isHydrated || !token) return;
+
+  loadAnalytics();
+
+}, [isHydrated, token]);
+
+
+useFocusEffect(
+  useCallback(() => {
+    if (isHydrated && token) {
+      loadAnalytics();
+    }
+  }, [isHydrated, token])
+);
+
+
+useEffect(() => {
+
+  if (!isHydrated || !token) return;
+
+  const interval = setInterval(() => {
+    loadAnalytics();
+  }, 15000); // refresh every 15 seconds
+
+  return () => clearInterval(interval);
+
+}, [isHydrated, token]);
+
+
 
 
 const maxRevenue =
   analytics.revenueData.length > 0
     ? Math.max(...analytics.revenueData.map((d) => d.value))
     : 1;
-  
+
+const magnitude =
+  maxRevenue > 0
+    ? Math.pow(10, Math.floor(Math.log10(maxRevenue)))
+    : 1;
+
+    
+const niceMax = Math.ceil(maxRevenue / magnitude) * magnitude;
+
+/* Dynamic goal scaling */
+const goalStep = niceMax * 0.5;
+
+const axisLevels = [
+  niceMax + goalStep * 4,
+  niceMax + goalStep * 3,
+  niceMax + goalStep * 2,
+  niceMax + goalStep,
+  niceMax,
+];
+
+
+  const onRefresh = async () => {
+  setRefreshing(true);
+  await loadAnalytics();
+  setRefreshing(false);
+};
 
  
   return (
@@ -139,8 +247,11 @@ const maxRevenue =
       </View>
 
       <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
+  refreshControl={
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+  }
+  showsVerticalScrollIndicator={false}
+  contentContainerStyle={{
           paddingHorizontal: 18,
           paddingBottom: insets.bottom + 24,
         }}
@@ -155,14 +266,14 @@ const maxRevenue =
 />
 
 <MiniKpiTile
-  label="Invoices today"
+  label="Transactions today"
   value={analytics.invoicesToday}
   accent="#34C759"
   isLight={isLight}
 />
 
 <MiniKpiTile
-  label="Subscriptions"
+  label="Invoices Today"
   value={analytics.subscriptions}
   accent="#22C55E"
   isLight={isLight}
@@ -230,23 +341,16 @@ const maxRevenue =
 
           {/* Animated bar chart (unchanged) */}
           <View style={styles.chartContainer}>
-            <View style={styles.yAxisLabels}>
-              <Text style={[styles.axisLabel, { color: theme.subtleText }]}>
-                $20k
-              </Text>
-              <Text style={[styles.axisLabel, { color: theme.subtleText }]}>
-                $15k
-              </Text>
-              <Text style={[styles.axisLabel, { color: theme.subtleText }]}>
-                $10k
-              </Text>
-              <Text style={[styles.axisLabel, { color: theme.subtleText }]}>
-                $5k
-              </Text>
-              <Text style={[styles.axisLabel, { color: theme.subtleText }]}>
-                0
-              </Text>
-            </View>
+        <View style={styles.yAxisLabels}>
+  {axisLevels.map((value, i) => (
+    <Text
+      key={i}
+      style={[styles.axisLabel, { color: theme.subtleText }]}
+    >
+      ${Math.round(value).toLocaleString()}
+    </Text>
+  ))}
+</View>
 
             <View style={styles.chartArea}>
               <View style={styles.chartGuides}>
@@ -272,27 +376,23 @@ const maxRevenue =
       </Text>
     </View>
   ) : (
-    analytics.revenueData.map((d, index) => {
-      const normalized = d.value / maxRevenue;
-      const targetHeight = 140 * normalized;
+ analytics.revenueData.slice(-12).map((d, index) => {
+ const normalized = d.value / axisLevels[0];
+  const MAX_BAR_HEIGHT = 120;
+  const targetHeight = MAX_BAR_HEIGHT * normalized;
 
-      return (
-        <View key={index} style={styles.barWrapper}>
-          <Animated.View
-            style={[
-              styles.bar,
-              {
-                height: targetHeight * progress.value,
-                opacity: 0.2 + 0.8 * progress.value,
-                backgroundColor: isLight
-                  ? HELP_BLUE
-                  : "rgba(56,189,248,0.95)",
-              },
-            ]}
-          />
-        </View>
-      );
-    })
+  return (
+    <View key={index} style={styles.barWrapper}>
+      <AnimatedBar
+        targetHeight={targetHeight}
+        progress={progress}
+        isLight={isLight}
+      />
+    </View>
+  );
+})
+     
+    
   )}
 </View>
               <View style={styles.xAxisLabelsRow}>
@@ -321,8 +421,8 @@ const maxRevenue =
           </View>
 
           <Text style={[styles.updatedText, { color: theme.subtleText }]}>
-            Updated 10 minutes ago
-          </Text>
+  Updated {getRelativeTime()}
+</Text>
         </View>
 
         {/* Actions list similar to Amazon */}
@@ -430,6 +530,34 @@ const DashboardRow = ({ icon, label, onPress, showDivider = true }) => {
     </>
   );
 };
+
+
+
+const AnimatedBar = ({ targetHeight, progress, isLight }) => {
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      height: targetHeight * progress.value,
+      opacity: 0.2 + 0.8 * progress.value,
+    };
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.bar,
+        animatedStyle,
+        {
+          backgroundColor: isLight
+            ? HELP_BLUE
+            : "rgba(56,189,248,0.95)",
+        },
+      ]}
+    />
+  );
+};
+
+
+
 
 /* ---------- Styles ---------- */
 
@@ -560,11 +688,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   chartArea: {
-    flex: 1,
-    height: 160,
-    position: "relative",
-    paddingLeft: 4,
-  },
+  flex: 1,
+  height: 150,
+  paddingLeft: 4,
+  justifyContent: "flex-end",
+},
   chartGuides: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -576,23 +704,21 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(148,163,184,0.35)",
   },
   barsRow: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 4,
-  },
-  barWrapper: {
-    flex: 1,
-    paddingHorizontal: 2,
-    justifyContent: "flex-end",
-  },
-  bar: {
-  borderTopLeftRadius: 999,
-  borderTopRightRadius: 999,
-  borderBottomLeftRadius: 0,
-  borderBottomRightRadius: 0,
+  flexDirection: "row",
+  alignItems: "flex-end",
+  justifyContent: "space-between",
+  paddingHorizontal: 10,
+  height: 120,
+},
+barWrapper: {
+  width: 18,
 },
 
+bar: {
+  width: 18,
+  borderTopLeftRadius: 8,
+  borderTopRightRadius: 8,
+},
   xAxisLabelsRow: {
     flexDirection: "row",
     justifyContent: "space-between",

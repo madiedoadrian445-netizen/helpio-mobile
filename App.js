@@ -12,13 +12,13 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { createSharedElementStackNavigator } from "react-navigation-shared-element";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BlurView } from "expo-blur";
 import { ThemeProvider, useTheme } from "./src/ThemeContext";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import useAuthStore from "./src/store/auth";
 import { DeviceEventEmitter } from "react-native";
-
+import { StripeProvider } from "@stripe/stripe-react-native";
 // Screens
 import ClientDetailScreen from "./src/screens/ClientDetailScreen";
 import ClientProfileScreen from "./src/screens/ClientProfileScreen";
@@ -66,15 +66,14 @@ import LegalPoliciesScreen from "./src/screens/LegalPoliciesScreen";
 import EditProfileScreen from "./src/screens/EditProfileScreen";
 import BusinessPlaceProductsScreen from "./src/screens/BusinessPlaceProductsScreen";
 import PayoutScreen from "./src/screens/PayoutScreen";
-
-
+import HelpioReceiptScreen from "./src/screens/HelpioReceiptScreen";
 
 
 
 
 
 const Tab = createBottomTabNavigator();
-const Stack = createSharedElementStackNavigator();
+const Stack = createNativeStackNavigator();
 
 /* ---------------------------------------------------
    FIX: EmptyPlaceholder MUST be OUTSIDE TabNavigator
@@ -431,6 +430,14 @@ function RootNavigator() {
 
 
 <Stack.Screen
+  name="HelpioReceipt"
+  component={HelpioReceiptScreen}
+  options={{ headerShown: false }}
+/>
+
+
+
+<Stack.Screen
   name="PayoutScreen"
   component={PayoutScreen}
 />
@@ -461,24 +468,32 @@ function RootNavigator() {
 }
 export default function App() {
   useEffect(() => {
-  AsyncStorage.getItem("authToken").then(token => {
-    console.log("🔐 JWT:", token);
-  });
-}, []);
+    AsyncStorage.getItem("authToken").then(token => {
+      console.log("🔐 JWT:", token);
+    });
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <NavigationContainer>
-          {/* 🔥 ZUSTAND AUTH GATE */}
-          <AuthGate />
-        </NavigationContainer>
+
+       <StripeProvider
+  publishableKey="pk_test_51SbDkJ9mPNYTMdphO3cieQQSm98oefsmpbVKbZJaYmkRVEkXpboUT77sMGGDnQAlkXavEwF761Mta2CfQaNa1Mgo00tsqEjLah"
+  merchantIdentifier="merchant.com.helpio"
+  urlScheme="helpio"
+>
+
+          <NavigationContainer>
+            {/* 🔥 ZUSTAND AUTH GATE */}
+            <AuthGate />
+          </NavigationContainer>
+
+        </StripeProvider>
+
       </ThemeProvider>
     </GestureHandlerRootView>
   );
 }
-
-
 
 const styles = StyleSheet.create({
   centerButton: {

@@ -182,77 +182,96 @@ const contentOpacity = useRef(new Animated.Value(1)).current;
   /* -------------------------------------------
    * SIMULATED PAYMENT (Expo-safe)
    ------------------------------------------- */
-  const handlePayPress = async () => {
-    if (isProcessing) return;
+ /* -------------------------------------------
+   * REAL STRIPE TERMINAL PAYMENT
+------------------------------------------- */
+const handlePayPress = async () => {
+  if (isProcessing) return;
 
-    const numericAmount = parseFloat(formattedAmount);
-    if (!numericAmount || numericAmount <= 0) {
-      setErrorMessage("Enter an amount above $0.00.");
-      return;
-    }
+  const numericAmount = parseFloat(formattedAmount);
+  if (!numericAmount || numericAmount <= 0) {
+    setErrorMessage("Enter an amount above $0.00.");
+    return;
+  }
 
-   // Allow simulated payments even if provider isn't ready
-const providerId = provider?._id || null;
+  setIsProcessing(true);
+  setErrorMessage(null);
 
+  try {
+    setPhase("tapping");
 
+    Animated.timing(contentOpacity, {
+      toValue: 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
 
-    setIsProcessing(true);
-    setErrorMessage(null);
+    await new Promise((r) => setTimeout(r, 650));
+    await playTapAcceptedSound();
 
-    try {
-      setPhase("tapping");
+    await new Promise((r) => setTimeout(r, 1150));
 
-Animated.timing(contentOpacity, {
-  toValue: 0,
-  duration: 220,
-  useNativeDriver: true,
-}).start();
+    console.log("🚀 FIRING STRIPE TERMINAL PAYMENT", {
+      amount: numericAmount,
+    });
 
+    console.log("🌍 API BASE URL:", api.defaults.baseURL);
 
-      await new Promise((r) => setTimeout(r, 650));
-      await playTapAcceptedSound();
+    /* -----------------------------
+       1️⃣ Create terminal session
+    ------------------------------ */
+   const sessionRes = await api.post("/api/terminal-payments/create-session", {
+      amount: numericAmount,
+      currency: "usd",
+    });
 
-      await new Promise((r) => setTimeout(r, 1150)); // reader detection
+    const sessionId = sessionRes.data.session.id;
 
-      console.log("🚀 FIRING SIM PAYMENT REQUEST", {
-  amount: Math.round(numericAmount * 100),
+    console.log("✅ Terminal session created:", sessionId);
+
+    /* -----------------------------
+       2️⃣ Authorize card
+    ------------------------------ */
+   await api.post("/api/terminal-payments/authorize", {
+      sessionId,
+    });
+
+    console.log("✅ Payment authorized");
+
+    /* -----------------------------
+       3️⃣ Capture payment
+    ------------------------------ */
+  
+   await api.post("/api/terminal-payments/capture", {
+  sessionId,
+  idempotencyKey: `${Date.now()}_${Math.floor(Math.random() * 1000000)}`
 });
 
-console.log("🌍 API BASE URL:", api.defaults.baseURL);
 
-    await api.post("/api/terminal-payments-sim/simulate", {
-  amount: Math.round(numericAmount * 100),
-  currency: "usd",
-  providerId, // null-safe
+    console.log("✅ Payment captured");
+
+    await new Promise((r) => setTimeout(r, 300));
+
+ playSuccessAnimation();
+
+await new Promise((r) => setTimeout(r, 900));
+
+navigation.navigate("HelpioReceipt", {
+  amount: formattedAmount,
+  brand: "Visa",
+  last4: "4242",
 });
 
 
-// ✅ allow request + logs to fully flush
-await new Promise((r) => setTimeout(r, 300));
 
-playSuccessAnimation();
+  } catch (err) {
+  console.log("Stripe terminal payment error:", err?.response?.data || err.message);
+    setErrorMessage("Payment failed.");
+  }
 
-await new Promise((r) => setTimeout(r, 650));
-
-Animated.timing(contentOpacity, {
-  toValue: 1,
-  duration: 180,
-  useNativeDriver: true,
-}).start();
-
-closeSheet();
-
-
-
-    } catch (err) {
-      console.log("Simulated payment error:", err);
-      setErrorMessage("Payment failed (simulated).");
-    }
-
-    setPhase("idle");
-    setIsProcessing(false);
-  };
-
+  setPhase("idle");
+  setIsProcessing(false);
+};
   const keypadRows = [
   [
     { n: "1", l: "" },

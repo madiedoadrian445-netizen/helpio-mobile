@@ -10,12 +10,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
-  Animated,
   Platform,
   StatusBar,
   Alert,
-  SafeAreaView, 
-   ActivityIndicator,
+  SafeAreaView,
+  ActivityIndicator,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -32,7 +31,8 @@ import * as Sharing from "expo-sharing";
 import * as Clipboard from "expo-clipboard";
 import { Share } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-
+import { Animated as RNAnimated } from "react-native";
+import Animated from "react-native-reanimated";
 
 
 const { width } = Dimensions.get("window"); 
@@ -675,21 +675,26 @@ setConversationId(convoId);
   const [currentIndex, setCurrentIndex] = React.useState(0);
 
   // Pulse animation
-  const pulse = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.06, duration: 1100, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1.0, duration: 1100, useNativeDriver: true }),
-      ])
-    ).start();
-  }, [pulse]);
+ const pulse = useRef(new RNAnimated.Value(1)).current;
 
+useEffect(() => {
+  RNAnimated.loop(
+    RNAnimated.sequence([
+      RNAnimated.timing(pulse, {
+        toValue: 1.06,
+        duration: 1100,
+        useNativeDriver: true,
+      }),
+      RNAnimated.timing(pulse, {
+        toValue: 1.0,
+        duration: 1100,
+        useNativeDriver: true,
+      }),
+    ])
+  ).start();
+}, [pulse]);
 
-
-
-  // Fading header
-  const scrollY = useRef(new Animated.Value(0)).current;
+const scrollY = useRef(new RNAnimated.Value(0)).current;
   const blurOpacity = scrollY.interpolate({
     inputRange: [0, 200],
     outputRange: [0, 1],
@@ -720,38 +725,38 @@ setConversationId(convoId);
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* ===== HEADER BLUR ===== */}
-      <Animated.View style={[styles.statusBlur, { opacity: blurOpacity }]}>
-       <BlurView intensity={90} tint="light" style={StyleSheet.absoluteFill} />
-      </Animated.View>
+<RNAnimated.View style={[styles.statusBlur, { opacity: blurOpacity }]}>
+  <BlurView intensity={90} tint="light" style={StyleSheet.absoluteFill} />
+</RNAnimated.View>
 
-     <Animated.ScrollView
+<RNAnimated.ScrollView
   bounces
   showsVerticalScrollIndicator={false}
   contentContainerStyle={{ paddingBottom: 220 }}
   scrollEventThrottle={16}
-
-
-  onScroll={Animated.event(
+  onScroll={RNAnimated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
     { useNativeDriver: true }
   )}
+
 >
 
-       {/* ===== HERO ===== */}
+{/* ===== HERO ===== */}
 <View style={styles.heroWrap}>
-  <ImageBackground
-    source={{ uri: heroSrc }}
-    style={styles.heroImg}
-    resizeMode="cover"
-  >
+  <View style={styles.heroImg}>
 
-    
+    <Animated.Image
+      sharedTransitionTag={`service-${service._id}`}
+      source={{ uri: heroSrc }}
+      style={StyleSheet.absoluteFill}
+      resizeMode="cover"
+    />
+
     {/* Dark top fade */}
     <LinearGradient
       colors={["rgba(0,0,0,0.45)", "rgba(0,0,0,0)"]}
       style={StyleSheet.absoluteFill}
     />
-
     {/* ===== GLASS TITLE CARD ===== */}
     <View style={styles.titleBandWrap}>
       <View style={styles.titleGlassCard}>
@@ -803,7 +808,7 @@ setConversationId(convoId);
         <View style={styles.titleGlassBorder} />
       </View>
     </View>
-  </ImageBackground>
+  </View>
 
   {/* Bottom fade */}
   <LinearGradient
@@ -1263,7 +1268,7 @@ const percent =
 
 
         </View>
-      </Animated.ScrollView>
+   </RNAnimated.ScrollView>
 
 {/* ===== REVIEWS MODAL ===== */}
 <ListingReviewsModal
