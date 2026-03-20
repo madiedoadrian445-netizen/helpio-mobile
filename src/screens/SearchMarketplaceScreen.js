@@ -1,5 +1,5 @@
 // src/screens/SearchMarketplaceScreen.js
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../ThemeContext";
 import { Animated } from "react-native";
 import { API_BASE_URL } from "../config/api";
+
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+
 const HELPIO_BLUE = "#00A6FF";
 const { width } = Dimensions.get("window");
 
@@ -62,7 +66,13 @@ export default function SearchMarketplaceScreen({ navigation, route }) {
   const [query, setQuery] = useState(route?.params?.initialQuery || "");
   const [focused, setFocused] = useState(false);
 
-  const [recents, setRecents] = useState([{ key: "r1", text: "Detailing", meta: "Miami" }]);
+
+
+const [services, setServices] = useState([]);
+const [loadingServices, setLoadingServices] = useState(false);
+
+
+ const [recents, setRecents] = useState([]);
 const [suggestions, setSuggestions] = useState([]);
 const [loadingSug, setLoadingSug] = useState(false);
 const [sugError, setSugError] = useState(null);
@@ -72,17 +82,51 @@ const debounceRef = useRef(null);
 const abortRef = useRef(null);
   // ✅ Apple-like focus animations
   const liftAnim = useRef(new Animated.Value(0)).current;     // whole content lift
-  const cancelAnim = useRef(new Animated.Value(0)).current;   // cancel fade/slide
+  
   const expandAnim = useRef(new Animated.Value(0)).current;   // bar width
 
-  const onSubmit = () => {
-    const q = query.trim();
+const fetchServices = async () => {
+  setLoadingServices(true);
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/listings`);
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data?.message || "Failed to load services");
+
+    const list = Array.isArray(data) ? data : data?.listings || [];
+
+    // randomize + take 2
+    const shuffled = [...list].sort(() => 0.5 - Math.random());
+    setServices(shuffled.slice(0, 2));
+  } catch (e) {
+    console.log("Service fetch error:", e.message);
+    setServices([]);
+  } finally {
+    setLoadingServices(false);
+  }
+};
+
+useEffect(() => {
+  fetchServices();
+}, []);
+
+
+useEffect(() => {
+  loadRecents();
+}, []);
+
+ const onSubmit = (value) => {
+  const q = (value ?? query).trim();
     if (!q) return;
 
-    setRecents((prev) => {
-      const cleaned = prev.filter((x) => x.text.toLowerCase() !== q.toLowerCase());
-      return [{ key: `r_${Date.now()}`, text: q, meta: "Search" }, ...cleaned].slice(0, 6);
-    });
+   const newRecents = [
+  { key: `r_${Date.now()}`, text: q, meta: "Search" },
+  ...recents.filter((x) => x.text.toLowerCase() !== q.toLowerCase()),
+].slice(0, 4);
+
+setRecents(newRecents);
+saveRecents(newRecents);
 
    navigation.navigate("MainTabs", {
   screen: "Home",
@@ -94,10 +138,33 @@ const abortRef = useRef(null);
 
   };
 
+
+const loadRecents = async () => {
+  try {
+    const stored = await AsyncStorage.getItem("RECENT_SEARCHES");
+    if (stored) {
+      setRecents(JSON.parse(stored));
+    }
+  } catch (e) {
+    console.log("Load recents error:", e.message);
+  }
+};
+
+
+
+const saveRecents = async (newRecents) => {
+  try {
+    await AsyncStorage.setItem("RECENT_SEARCHES", JSON.stringify(newRecents));
+  } catch (e) {
+    console.log("Save recents error:", e.message);
+  }
+};
+
+
   const onTapRecent = (text) => {
-    setQuery(text);
-    requestAnimationFrame(() => onSubmit());
-  };
+  setQuery(text);
+  onSubmit(text);
+};
 
   const animateFocusIn = () => {
     setFocused(true);
@@ -109,11 +176,7 @@ const abortRef = useRef(null);
         speed: 22,
         bounciness: 6,
       }),
-      Animated.timing(cancelAnim, {
-        toValue: 1,
-        duration: 220,
-        useNativeDriver: true,
-      }),
+     
       Animated.timing(expandAnim, {
         toValue: 1,
         duration: 220,
@@ -130,11 +193,7 @@ const abortRef = useRef(null);
         speed: 22,
         bounciness: 6,
       }),
-      Animated.timing(cancelAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
+    
       Animated.timing(expandAnim, {
         toValue: 0,
         duration: 200,
@@ -199,24 +258,23 @@ const onChangeQuery = (text) => {
 };
 
 
-
-  const onCancel = () => {
+const onCancel = () => {
   Keyboard.dismiss();
 
-  // Clear suggestion state (prevents stale UI flash)
   setSuggestions([]);
   setSugError(null);
   setLoadingSug(false);
 
   animateFocusOut();
 
-  if (navigation?.canGoBack?.()) navigation.goBack();
+  setTimeout(() => {
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+    }
+  }, 200); // matches animation duration
 };
+  
 
-  const searchWidth = expandAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["100%", "82%"], // ✅ matches iOS “Cancel” spacing feel
-  });
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -245,19 +303,32 @@ const onChangeQuery = (text) => {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* Search Row */}
-            <View style={styles.searchRow}>
+
+
+
+
+
+
+           {/* Search Row */}
+<View style={styles.searchRow}>
+
+ 
+
               {/* ✅ Animated width wrapper */}
-              <Animated.View style={[styles.searchPill, { width: searchWidth }]}>
+           <Animated.View style={[styles.searchPill, { flex: 1 }]}>
                 <BlurView intensity={35} tint="light" style={StyleSheet.absoluteFill} />
                 <View style={styles.searchPillTint} />
 
-                <Ionicons
-                  name="search-outline"
-                  size={18}
-                  color="#6B7280"
-                  style={{ marginRight: 8 }}
-                />
+
+
+
+
+<Ionicons
+  name="search"
+  size={17}
+  color="#8E8E93"
+  style={{ marginRight: 8, marginTop: 1 }}
+/>
 
                 <TextInput
                   ref={inputRef}
@@ -266,7 +337,7 @@ const onChangeQuery = (text) => {
                   placeholder="Search"
                   placeholderTextColor="#9CA3AF"
                   returnKeyType="search"
-                  onSubmitEditing={onSubmit}
+                onSubmitEditing={() => onSubmit()}
                   onFocus={animateFocusIn}
                   style={styles.searchInput}
                 />
@@ -280,24 +351,26 @@ const onChangeQuery = (text) => {
                 </TouchableOpacity>
               </Animated.View>
 
-              {/* ✅ Apple-like cancel slide */}
-              <Animated.View
-                style={{
-                  opacity: cancelAnim,
-                  transform: [
-                    {
-                      translateX: cancelAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [16, 0],
-                      }),
-                    },
-                  ],
-                }}
-              >
-                <TouchableOpacity activeOpacity={0.75} onPress={onCancel} style={styles.cancelBtn}>
-                  <Text style={styles.cancelText}>Cancel</Text>
-                </TouchableOpacity>
-              </Animated.View>
+
+ {/* 👇 ADD THIS HERE */}
+  <TouchableOpacity
+    activeOpacity={0.8}
+   onPress={() => {
+  Keyboard.dismiss();
+  navigation.goBack();
+}}
+    style={styles.allServicesBtn}
+  >
+    <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
+   <Ionicons
+  name="close"
+  size={22}
+  color="#111827"
+/>
+  </TouchableOpacity>
+
+
+           
             </View>
 
 
@@ -343,10 +416,18 @@ const onChangeQuery = (text) => {
               setQuery(label);
 
               // add to recents
-              setRecents((prev) => {
-                const cleaned = prev.filter((x) => x.text.toLowerCase() !== label.toLowerCase());
-                return [{ key: `r_${Date.now()}`, text: label, meta: s.subtitle || s.type || "Search" }, ...cleaned].slice(0, 6);
-              });
+             const newRecents = [
+  {
+    key: `r_${Date.now()}`,
+    text: label,
+    meta: s.subtitle || s.type || "Search",
+  },
+  ...recents.filter((x) => x.text.toLowerCase() !== label.toLowerCase()),
+].slice(0, 4);
+
+setRecents(newRecents);
+saveRecents(newRecents);
+
 
               // jump to results feed
               navigation.navigate("MainTabs", {
@@ -384,7 +465,13 @@ const onChangeQuery = (text) => {
         query.trim().length > 0 && (
           <TouchableOpacity activeOpacity={0.75} onPress={onSubmit} style={styles.sugRow}>
             <View style={styles.sugLeft}>
-              <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+           <Ionicons
+  name="search"
+  size={18}
+  color="#8E8E93"
+  style={{ marginRight: 8, marginTop: 1 }}
+/>
+
               <Text style={[styles.sugMain, { marginLeft: 10 }]}>Search “{query.trim()}”</Text>
             </View>
           </TouchableOpacity>
@@ -421,16 +508,30 @@ const onChangeQuery = (text) => {
                       style={[styles.recentRow, idx !== recents.length - 1 && styles.rowDivider]}
                     >
                       <View style={styles.recentLeft}>
-                        <Ionicons name="search-outline" size={18} color="#9CA3AF" />
+                   <Ionicons
+  name="search"
+  size={18}
+  color="#8E8E93"
+/>
                         <View style={{ marginLeft: 10 }}>
                           <Text style={styles.recentMain}>{r.text}</Text>
                           {!!r.meta && <Text style={styles.recentMeta}>{r.meta}</Text>}
                         </View>
                       </View>
 
-                      <TouchableOpacity activeOpacity={0.7} onPress={() => {}} style={styles.moreBtn}>
-                        <Ionicons name="ellipsis-horizontal" size={18} color="#9CA3AF" />
-                      </TouchableOpacity>
+                    <TouchableOpacity
+  activeOpacity={0.7}
+  onPress={() => {
+    const updated = recents.filter((x) => x.key !== r.key);
+    setRecents(updated);
+    saveRecents(updated);
+  }}
+  style={styles.moreBtn}
+>
+  <Ionicons name="close" size={18} color="#9CA3AF" />
+</TouchableOpacity>
+
+
                     </TouchableOpacity>
                   ))
                 )}
@@ -447,10 +548,10 @@ const onChangeQuery = (text) => {
                   <TouchableOpacity
                     key={item.key}
                     activeOpacity={0.85}
-                    onPress={() => {
-                      setQuery(item.label);
-                      requestAnimationFrame(() => onSubmit());
-                    }}
+                   onPress={() => {
+  setQuery(item.label);
+  onSubmit(item.label);
+}}
                     style={styles.nearbyPill}
                   >
                     <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
@@ -469,33 +570,62 @@ const onChangeQuery = (text) => {
             {/* Guides We Love */}
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>Services</Text>
+                
+                <Text style={styles.sectionTitle}>Helpio's Choice</Text>
+
+
                 <TouchableOpacity activeOpacity={0.75} onPress={() => {}} style={styles.chevBtn}>
                   <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                 </TouchableOpacity>
               </View>
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 16 }}>
-                {guides.map((g) => (
-                  <TouchableOpacity key={g.key} activeOpacity={0.9} onPress={() => {}} style={styles.guideCard}>
-                    <BlurView intensity={22} tint="light" style={StyleSheet.absoluteFill} />
-                    <View style={styles.guideTint} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 16 }}>
+  {loadingServices ? (
+    <View style={styles.guideCard}>
+      <Text style={{ padding: 20, color: "#9CA3AF" }}>Loading...</Text>
+    </View>
+  ) : services.length === 0 ? (
+    <View style={styles.guideCard}>
+      <Text style={{ padding: 20, color: "#9CA3AF" }}>No services found</Text>
+    </View>
+  ) : (
+    services.map((item) => (
+      <TouchableOpacity
+        key={item._id}
+        activeOpacity={0.9}
+       onPress={() => {
+  navigation.navigate("ServiceDetailScreen", {
+    service: item,
+    viewer: { _id: null }, // or user?._id if available
+    isOwnListing: false,
+  });
+}}
+        style={styles.guideCard}
+      >
+        <BlurView intensity={22} tint="light" style={StyleSheet.absoluteFill} />
+        <View style={styles.guideTint} />
 
-                    {g.image ? (
-                      <Image source={{ uri: g.image }} style={styles.guideImg} />
-                    ) : (
-                      <View style={styles.guideImgPlaceholder} />
-                    )}
+        {item.images?.[0] ? (
+          <Image source={{ uri: item.images[0] }} style={styles.guideImg} />
+        ) : (
+          <View style={styles.guideImgPlaceholder} />
+        )}
 
-                    <View style={styles.guideTextWrap}>
-                      <Text style={styles.guideTitle}>{g.title}</Text>
-                      <Text style={styles.guideSubtitle}>{g.subtitle}</Text>
-                    </View>
+        <View style={styles.guideTextWrap}>
+          <Text style={styles.guideTitle} numberOfLines={1}>
+            {item.title || "Service"}
+          </Text>
 
-                    <View style={styles.guideBorder} />
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+          <Text style={styles.guideSubtitle} numberOfLines={1}>
+            {item.category || "Local service"}
+          </Text>
+        </View>
+
+        <View style={styles.guideBorder} />
+      </TouchableOpacity>
+    ))
+  )}
+</ScrollView>
             </View>
 
             <View style={{ height: 36 }} />
@@ -528,12 +658,38 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
 
+
+
+allServicesBtn: {
+  height: 40,
+  width: 40,
+  borderRadius: 20,
+  overflow: "hidden",
+
+  alignItems: "center",
+  justifyContent: "center",
+
+  backgroundColor: "rgba(255,255,255,0.7)",
+
+  marginLeft: 6,   // already good
+  marginRight: 6,  // 👈 ADD THIS
+
+  shadowColor: "#000",
+  shadowOpacity: 0.08,
+  shadowRadius: 10,
+  shadowOffset: { width: 0, height: 4 },
+
+  elevation: 2,
+},
+
+
   /* Search Row */
   searchRow: {
-    paddingHorizontal: 16,
+   paddingLeft: 16,
+paddingRight: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 4,
     marginBottom: 14,
   },
 

@@ -13,7 +13,8 @@ import HelpioGlobeIcon from "../components/HelpioGlobeIcon";
 import { Animated, Dimensions, Easing } from "react-native";
 import VerifyIdentityIDScanScreen from "./VerifyIdentityIDScanScreen";
 import { useStripe } from "@stripe/stripe-react-native";
-
+import { registerProvider } from "../api/auth";
+import useAuthStore from "../store/auth";
 const HELPIO_BLUE = "#00A6FF";
 const { width } = Dimensions.get("window");
 
@@ -42,6 +43,9 @@ const STEPS = [
   { title: "Verify your identity" }
 ];
 
+
+
+
 /* ---------------- SCREEN ---------------- */
 
 export default function ProviderOnboardingScreen({ navigation }) {
@@ -49,6 +53,56 @@ export default function ProviderOnboardingScreen({ navigation }) {
   const [verifying, setVerifying] = useState(false);
 const { presentIdentityVerificationSheet } = useStripe();
   const translateX = React.useRef(new Animated.Value(0)).current;
+
+const [firstName, setFirstName] = useState("");
+const [lastName, setLastName] = useState("");
+const [email, setEmail] = useState("");
+const [password, setPassword] = useState("");
+const [phone, setPhone] = useState("");
+
+const [businessName, setBusinessName] = useState("");
+const [zipCode, setZipCode] = useState("");
+
+
+
+
+
+const handleRegisterProvider = async () => {
+ try {
+
+  if (!firstName || !lastName || !email || !password || !businessName || !zipCode || !phone) {
+    console.log("Missing required fields");
+    return;
+  }
+
+    const data = await registerProvider({
+      name: `${firstName} ${lastName}`,
+      email: email.trim().toLowerCase(),
+      password: password.trim(),
+      companyName: businessName.trim(),
+      phone: phone.trim(),
+      zipCode: zipCode.trim(),
+    });
+
+    if (!data?.token || !data?.user) {
+      throw new Error("Invalid register response");
+    }
+
+    await useAuthStore.getState().setAuth({
+      token: data.token,
+      user: data.user,
+      provider: { _id: data.user.providerId },
+    });
+
+   setStep(5);// continue onboarding
+
+  } catch (err) {
+    console.log("Register error:", err);
+  }
+};
+
+
+
 
 
 
@@ -59,26 +113,57 @@ const startStripeVerification = async () => {
   setVerifying(true);
 
   try {
+
+   
+    const token = useAuthStore.getState().token;
+console.log("AUTH TOKEN BEFORE STRIPE:", token);
+   
+
+    if (!token) {
+      console.log("Missing auth token");
+      return;
+    }
+
     const response = await fetch(
       "https://helpio-backend.onrender.com/api/stripe/create-verification-session",
-      { method: "POST" }
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
     );
 
     if (!response.ok) {
+      const text = await response.text();
+      console.log("Stripe backend error:", text);
       throw new Error("Failed to create verification session");
     }
 
     const { clientSecret } = await response.json();
 
-   const { error } = await presentIdentityVerificationSheet({
-  verificationSessionClientSecret: clientSecret,
-});
+    if (!clientSecret) {
+      throw new Error("Missing Stripe client secret");
+    }
 
+    const { error } = await presentIdentityVerificationSheet({
+      verificationSessionClientSecret: clientSecret,
+    });
+
+    // User cancelled verification
+    if (error?.code === "Canceled") {
+      console.log("User cancelled verification");
+      return;
+    }
+
+    // Real Stripe error
     if (error) {
       console.log("Stripe verification error:", error);
       return;
     }
 
+    // Verification flow completed
     animateNext();
 
   } catch (err) {
@@ -88,13 +173,17 @@ const startStripeVerification = async () => {
   }
 };
 
+ const animateNext = async () => {
 
+  if (step === 4) {
+    await handleRegisterProvider();
+    return;
+  }
 
- const animateNext = () => {
   if (step === STEPS.length - 1) {
-  navigation.replace("MainTabs");
-  return;
-}
+    navigation.replace("MainTabs");
+    return;
+  }
 
   Animated.sequence([
     Animated.timing(translateX, {
@@ -150,7 +239,18 @@ const startStripeVerification = async () => {
   <LanguageStep onSelect={animateNext} />
 
 ) : step === 1 ? (
-  <AppleIDInput />
+  <AppleIDInput
+    firstName={firstName}
+    setFirstName={setFirstName}
+    lastName={lastName}
+    setLastName={setLastName}
+    email={email}
+    setEmail={setEmail}
+    password={password}
+    setPassword={setPassword}
+    phone={phone}
+    setPhone={setPhone}
+  />
 
 ) : step === 5 ? (
  <VerifyIdentityIDScanScreen
@@ -165,7 +265,14 @@ const startStripeVerification = async () => {
     {STEPS[step].subtitle && (
       <Text style={styles.subtitle}>{STEPS[step].subtitle}</Text>
     )}
-    {renderInput(step)}
+  {renderInput(step, {
+  businessName,
+  setBusinessName,
+  zipCode,
+  setZipCode,
+  phone,
+  setPhone
+})}
   </>
 )}
 
@@ -217,7 +324,18 @@ function LanguageStep({ onSelect }) {
 
 /* ---------------- APPLE ID INPUT ---------------- */
 
-function AppleIDInput() {
+function AppleIDInput({
+  firstName,
+  setFirstName,
+  lastName,
+  setLastName,
+  email,
+  setEmail,
+  password,
+  setPassword,
+  phone,
+  setPhone,
+}) {
   return (
     <View>
       <Text style={styles.title}>Helpio BusinessPlace ID</Text>
@@ -230,51 +348,61 @@ function AppleIDInput() {
       {/* First + Last Name */}
       <View style={styles.row}>
         <View style={[styles.appleInputWrap, styles.half]}>
-          <TextInput
-            placeholder="First name"
-            placeholderTextColor="#8E8E93"
-            style={styles.appleInput}
-          />
+       <TextInput
+  placeholder="First name"
+  value={firstName}
+  onChangeText={setFirstName}
+  placeholderTextColor="#8E8E93"
+  style={styles.appleInput}
+/>
         </View>
 
         <View style={[styles.appleInputWrap, styles.half]}>
-          <TextInput
-            placeholder="Last name"
-            placeholderTextColor="#8E8E93"
-            style={styles.appleInput}
-          />
+         <TextInput
+  placeholder="Last name"
+  value={lastName}
+  onChangeText={setLastName}
+  placeholderTextColor="#8E8E93"
+  style={styles.appleInput}
+/>
         </View>
       </View>
 
       {/* Email */}
       <View style={styles.appleInputWrap}>
         <TextInput
-          placeholder="Email address"
-          placeholderTextColor="#8E8E93"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          style={styles.appleInput}
-        />
+  placeholder="Email address"
+  value={email}
+  onChangeText={setEmail}
+  placeholderTextColor="#8E8E93"
+  keyboardType="email-address"
+  autoCapitalize="none"
+  style={styles.appleInput}
+/>
       </View>
 
       {/* Password */}
       <View style={styles.appleInputWrap}>
         <TextInput
-          placeholder="Password"
-          placeholderTextColor="#8E8E93"
-          secureTextEntry
-          style={styles.appleInput}
-        />
+  placeholder="Password"
+  value={password}
+  onChangeText={setPassword}
+  placeholderTextColor="#8E8E93"
+  secureTextEntry
+  style={styles.appleInput}
+/>
       </View>
 
       {/* Phone */}
       <View style={styles.appleInputWrap}>
-        <TextInput
-          placeholder="Phone number"
-          placeholderTextColor="#8E8E93"
-          keyboardType="phone-pad"
-          style={styles.appleInput}
-        />
+       <TextInput
+  placeholder="Phone number"
+  value={phone}
+  onChangeText={setPhone}
+  placeholderTextColor="#8E8E93"
+  keyboardType="phone-pad"
+  style={styles.appleInput}
+/>
       </View>
 
       <Text style={styles.appleFootnote}>
@@ -287,18 +415,27 @@ function AppleIDInput() {
 
 /* ---------------- OTHER INPUTS ---------------- */
 
-function renderInput(step) {
+function renderInput(step, {
+  businessName,
+  setBusinessName,
+  zipCode,
+  setZipCode,
+  phone,
+  setPhone
+}) {
   switch (step) {
     case 2:
   return (
     <View>
       <View style={styles.appleInputWrap}>
-        <TextInput
-          placeholder="Business name"
-          placeholderTextColor="#8E8E93"
-          autoCapitalize="words"
-          style={styles.appleInput}
-        />
+      <TextInput
+  placeholder="Business name"
+  value={businessName}
+  onChangeText={setBusinessName}
+  placeholderTextColor="#8E8E93"
+  autoCapitalize="words"
+  style={styles.appleInput}
+/>
       </View>
 
       <Text style={styles.appleFootnote}>
@@ -313,12 +450,14 @@ function renderInput(step) {
   return (
     <View>
       <View style={styles.appleInputWrap}>
-        <TextInput
-          placeholder="ZIP code"
-          placeholderTextColor="#8E8E93"
-          keyboardType="numeric"
-          style={styles.appleInput}
-        />
+      <TextInput
+  placeholder="ZIP code"
+  value={zipCode}
+  onChangeText={setZipCode}
+  placeholderTextColor="#8E8E93"
+  keyboardType="numeric"
+  style={styles.appleInput}
+/>
       </View>
 
       <Text style={styles.appleFootnote}>
@@ -334,12 +473,14 @@ function renderInput(step) {
     <View>
       {/* Phone Number */}
       <View style={styles.appleInputWrap}>
-        <TextInput
-          placeholder="Phone number"
-          placeholderTextColor="#8E8E93"
-          keyboardType="phone-pad"
-          style={styles.appleInput}
-        />
+     <TextInput
+  placeholder="Phone number"
+  value={phone}
+  onChangeText={setPhone}
+  keyboardType="phone-pad"
+  placeholderTextColor="#8E8E93"
+  style={styles.appleInput}
+/>
       </View>
 
       {/* Verification Code */}

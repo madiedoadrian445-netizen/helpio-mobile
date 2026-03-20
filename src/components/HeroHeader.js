@@ -115,13 +115,13 @@ export default function HeroHeader({ activeFeed, onFeedChange }) {
                   <Ionicons
                     name={feed.icon}
                     size={15}
-                    color={active ? HELP_IO_BLUE :  "#171717ff" }
+                   color={active ? "#000" : "#171717"}
                     style={{ marginRight: 6 }}
                   />
                   <Text
                     style={[
                       styles.tabLabel,
-                     { color: active ? HELP_IO_BLUE : "#4b4b4bff" }
+                     { color: active ? "#000" : "#4b4b4be4" }
 
                      // other otion in subtle grey { color: active ? HELP_IO_BLUE : "#000" }
 

@@ -33,6 +33,9 @@ import Animated from "react-native-reanimated";
 
 const HELP_IO_BLUE = "#00A6FF";
 
+const SIZE = 72;
+const RADIUS = SIZE / 2;
+
 // Featured placeholders
 
 export default function AllServicesScreen({ navigation, route }) {
@@ -107,7 +110,24 @@ useEffect(() => {
 // save ZIP
 
 
+const scale = useRef(new RNAnimated.Value(1)).current;
 
+const handlePressIn = () => {
+  RNAnimated.spring(scale, {
+    toValue: 0.92,
+    useNativeDriver: true,
+  }).start();
+
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+};
+
+const handlePressOut = () => {
+  RNAnimated.spring(scale, {
+    toValue: 1,
+    friction: 4,
+    useNativeDriver: true,
+  }).start();
+};
 
 const resolveUserCoordinates = async () => {
   if (latitude !== null && longitude !== null) {
@@ -505,11 +525,11 @@ return (
       style={styles.zipChipWrap}
     >
       <BlurView intensity={40} tint={theme.blurTint} style={styles.zipChip}>
-        <Ionicons name="location-sharp" size={14} color={HELP_IO_BLUE} />
+        <Ionicons name="location-sharp" size={14} color="#000" />
      <Text style={styles.zipText}>
   {zip || "Miami"}
 </Text>
-        <Ionicons name="chevron-down" size={12} color={HELP_IO_BLUE} />
+        <Ionicons name="chevron-down" size={12} color="#000" />
       </BlurView>
     </TouchableOpacity>
 
@@ -522,7 +542,7 @@ return (
   style={styles.iconWrap}
 >
   <BlurView intensity={40} tint={theme.blurTint} style={styles.blurCircle}>
-   <Ionicons name="menu" size={20} color={HELP_IO_BLUE} />
+   <Ionicons name="menu" size={20} color="#000" />
   </BlurView>
 </TouchableOpacity>
 
@@ -535,7 +555,7 @@ return (
       style={styles.iconWrap}
     >
       <BlurView intensity={40} tint={theme.blurTint} style={styles.blurCircle}>
-        <Ionicons name="notifications-outline" size={20} color={HELP_IO_BLUE} />
+        <Ionicons name="notifications-outline" size={20} color="#000" />
         <View style={styles.badgeDot} />
       </BlurView>
     </TouchableOpacity>
@@ -652,6 +672,7 @@ ListEmptyComponent={
 
 
 ListHeaderComponent={
+  
   <>
   
   <HeroHeader
@@ -676,56 +697,64 @@ ListHeaderComponent={
       : "Trending Now"}
   </Text>
 
+
+
+
+
+
 {/* Inline compact search */}
-<View style={styles.inlineSearchWrap}>
-  <BlurView intensity={40} tint="light" style={styles.inlineBlur} />
+<View style={{ width: 165, marginLeft: -6 }}>
+ <Animated.View style={styles.searchPill}>
+    
+    <BlurView intensity={35} tint="light" style={StyleSheet.absoluteFill} />
+    <View style={styles.searchPillTint} />
 
-  <TouchableOpacity
-    activeOpacity={0.85}
-    onPress={() => navigation.navigate("SearchMarketplace")}
-    style={styles.inlineContent}
-  >
     <Ionicons
-      name="search"
-      size={16}
-      color="#6B7280"
-      style={{ marginRight: 8 }}
-    />
-
-    <Text
-      numberOfLines={1}
-      ellipsizeMode="tail"
-      style={[
-        styles.inlineSearchText,
-        { color: search.trim() ? theme.text : "#9ca3afcb" },
-      ]}
-    >
-      {search.trim() ? search : "Search"}
-    </Text>
-  </TouchableOpacity>
-
-  {search.trim().length > 0 && (
+  name="search-outline"
+  size={16}                 // ⬅️ was 18
+  color="#6B7280"
+  style={{ marginRight: 6 }} // ⬅️ tighter
+/>
     <TouchableOpacity
-     onPress={() => {
-  setSearch("");
+      activeOpacity={0.9}
+      onPress={() => navigation.navigate("SearchMarketplace")}
+      style={{ flex: 1 }}
+    >
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.searchInput,
+          { color: search.trim() ? "#111827" : "#9CA3AF" },
+        ]}
+      >
+        {search.trim() ? search : "Search"}
+      </Text>
+    </TouchableOpacity>
 
-  setHasMore(true);
-  setPage(1);
-  setLoading(true);
-  setServices([]);
-
-  fetchServices(1, true, true, null, null, "");
-  }}
-  style={styles.clearInlineBtn}
-  activeOpacity={0.7}
-  hitSlop={{ top: 14, bottom: 14, left: 12, right: 20 }}
->
-  <Ionicons name="close" size={16} color="#0B0B0F" />
-</TouchableOpacity>
-  )}
+    {search.trim().length > 0 ? (
+      <TouchableOpacity
+        onPress={() => {
+          setSearch("");
+          setHasMore(true);
+          setPage(1);
+          setLoading(true);
+          setServices([]);
+          fetchServices(1, true, true, null, null, "");
+        }}
+        style={styles.micBtn}
+      >
+        <Ionicons name="close" size={18} color="#6B7280" />
+      </TouchableOpacity>
+    ) : (
+      <View style={styles.micBtn}>
+        <Ionicons name="mic-outline" size={18} color="#6B7280" />
+      </View>
+    )}
+  </Animated.View>
 </View>
 
 </View>
+
 
   </>
 }
@@ -973,12 +1002,41 @@ return (
 />
 
       {/* ADD LISTING BUTTON */}
-      <TouchableOpacity
-        style={[styles.addButton, { backgroundColor: HELP_IO_BLUE }]}
-        onPress={() => navigation.navigate("MyListingsScreen")}
-      >
-        <Ionicons name="add" size={30} color="#fff" />
-      </TouchableOpacity>
+   <RNAnimated.View
+  style={[
+    styles.addButtonContainer,
+    { transform: [{ scale }] },
+  ]}
+>
+  <BlurView intensity={65} tint="light" style={styles.addButtonBlur}>
+  
+  {/* VERY LIGHT glass tint */}
+  <View style={styles.addButtonTint} />
+
+  {/* TOP highlight (THIS is what makes it pop) */}
+  <LinearGradient
+    colors={[
+      "rgba(255,255,255,0.35)",
+      "rgba(255,255,255,0.05)",
+      "transparent",
+    ]}
+    start={{ x: 0.5, y: 0 }}
+    end={{ x: 0.5, y: 1 }}
+    style={StyleSheet.absoluteFill}
+  />
+
+  <TouchableOpacity
+    activeOpacity={0.9}
+    onPressIn={handlePressIn}
+    onPressOut={handlePressOut}
+    onPress={() => navigation.navigate("MyListingsScreen")}
+    style={styles.addButtonInner}
+  >
+    <Ionicons name="add" size={28} color="#1F2937" />
+  </TouchableOpacity>
+
+</BlurView>
+</RNAnimated.View>
 
       
 
@@ -1160,12 +1218,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF3B30",
   },
  sectionTitle: {
-  fontSize: 22,
-  fontWeight: "800",
-  marginTop: 2,
-  marginBottom: 0,
+  fontSize: 20,
+  fontWeight: "700",     // ⬅️ THIS is the big fix
+  letterSpacing: -0.2,
+  marginTop: 8,          // ⬅️ more breathing room above
+  marginBottom: 6,
 },
-
 
 zipChipWrap: {
   borderRadius: 16,
@@ -1191,7 +1249,7 @@ zipChip: {
 zipText: {
   fontSize: 13,
   fontWeight: "700",
-  color: HELP_IO_BLUE,
+    color: "#000",
 },
 
 
@@ -1223,6 +1281,63 @@ clearInlineBtn: {
   alignItems: "center",
   backgroundColor: "rgba(0,0,0,0.08)",
 },
+
+
+
+
+
+
+
+
+
+
+
+searchPill: {
+  height: 32,
+  borderRadius: 20,
+  overflow: "hidden",
+  paddingHorizontal: 8,
+  flexDirection: "row",
+  alignItems: "center",
+
+  borderWidth: 1,
+  borderColor: "rgba(255, 255, 255, 1)",
+
+  shadowColor: "#000",
+  shadowOpacity: 0.04,
+  shadowRadius: 6,
+  shadowOffset: { width: 0, height: 2 },
+  elevation: 1,
+},
+
+
+
+
+searchPillTint: {
+  ...StyleSheet.absoluteFillObject,
+  backgroundColor: "rgba(255, 255, 255, 0.76)",
+},
+
+searchInput: {
+  flex: 1,
+  fontSize: 13,
+  fontWeight: "500",
+  color: "#111827",
+  paddingVertical: 10,
+  paddingLeft: 4,
+  lineHeight: 13,
+},
+
+
+
+
+
+
+
+
+
+
+
 
 
 inlineSearchWrap: {
@@ -1298,21 +1413,65 @@ inlineSearchText: {
   desc: { fontSize: 11, marginVertical: 1 },
   price: { fontSize: 13, fontWeight: "700", marginTop: 3 },
   empty: { textAlign: "center", marginTop: 50 },
-  addButton: {
-    position: "absolute",
-    bottom: 100,
-    right: 25,
-    width: 64,
-    height: 64,
-    borderRadius: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowOpacity: 0.4,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-    elevation: 5,
-    zIndex: 999,
-  },
+  addButtonContainer: {
+  position: "absolute",
+  bottom: 110,
+  right: 22,
+  borderRadius: 34,
+  overflow: "hidden",
+  zIndex: 999,
+},
+
+
+
+
+
+
+addButtonContainer: {
+  position: "absolute",
+  bottom: 115,
+  right: 22,
+  width: SIZE,
+  height: SIZE,
+  borderRadius: RADIUS,
+
+  overflow: "visible", // keep shadow outside
+  zIndex: 999,
+
+  // shadow
+  shadowColor: "#000",
+  shadowOpacity: 0.35,
+  shadowRadius: 20,
+  shadowOffset: { width: 0, height: 10 },
+  elevation: 20,
+},
+
+addButtonBlur: {
+  width: "100%",
+  height: "100%",
+  borderRadius: RADIUS,
+  overflow: "hidden", // 🔥 CRITICAL
+},
+
+addButtonTint: {
+  ...StyleSheet.absoluteFillObject,
+  borderRadius: RADIUS, // 🔥 MUST MATCH
+  backgroundColor: "rgba(255,255,255,0.18)",
+},
+
+addButtonInner: {
+  flex: 1,
+  justifyContent: "center",
+  alignItems: "center",
+
+  borderRadius: RADIUS, // 🔥 MUST MATCH
+
+  backgroundColor: "rgba(255,255,255,0.05)",
+
+  borderWidth: 1.2,
+  borderColor: "rgba(230, 230, 230, 0.85)",
+},
+
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
   modalContainer: {
     position: "absolute",
@@ -1344,10 +1503,13 @@ trendingHeaderRow: {
   flexDirection: "row",
   alignItems: "center",
   justifyContent: "space-between",
-  paddingHorizontal: 18,
-  marginTop: 8,
-  marginBottom: 10,
+  paddingHorizontal: 14,
+
+  marginTop: 2,     // ⬅️ pull it UP
+  marginBottom: 4,  // ⬅️ bring it CLOSER to cards
 },
+
+
 
 reviewRow: {
   flexDirection: "row",
@@ -1447,3 +1609,4 @@ locationText: {
   sortOption: { paddingVertical: 12 },
   sortText: { fontSize: 18, fontWeight: "700" },
 });
+

@@ -33,12 +33,17 @@ import { Share } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Animated as RNAnimated } from "react-native";
 import Animated from "react-native-reanimated";
-
+import { PanGestureHandler } from "react-native-gesture-handler";
+import { Modal } from "react-native";
+import ChatDetailScreen from "./ChatDetailScreen";
+import { KeyboardAvoidingView } from "react-native";
 
 const { width } = Dimensions.get("window"); 
 
 const PADDING_H = 16;
 const HELPIO_BLUE = "#00A6FF";
+const BACK_BTN_SIZE = 34;
+
 
 function MarqueeChips({ items }) {
   const scrollRef = useRef(null);
@@ -155,6 +160,10 @@ const [loadingService, setLoadingService] = React.useState(false);
 const [sending, setSending] = React.useState(false);
 const [conversationId, setConversationId] = React.useState(null);
 const [reviews, setReviews] = React.useState([]);
+const [chatSheetVisible, setChatSheetVisible] = React.useState(false);
+const [chatParams, setChatParams] = React.useState(null);
+
+
 
 const reviewCount = reviews.length;
 
@@ -497,7 +506,7 @@ const heroSrc = gallerySrc[0] || null;
 
 
 const [initialMessage, setInitialMessage] = React.useState(
-   "Hey, I would like to get a quote !"
+   "Hey, I'd like to get a quote"
 );
 
 // Reviews modal
@@ -646,15 +655,16 @@ setConversationId(convoId);
 
   console.log("🟢 STEP 5 — NAVIGATING TO CHAT");
 
-  navigation.navigate("ChatDetail", {
-    conversationId: convoId,
-    providerId,
-    serviceId: listingId,
-    name: companyName,
-    avatar: service.logo || heroSrc || null,
-    phoneNumber: service.phone || service.provider?.phone || null,
-    
-  });
+  setChatParams({
+  conversationId: convoId,
+  providerId,
+  serviceId: listingId,
+  name: companyName,
+  avatar: service.logo || heroSrc || null,
+  phoneNumber: service.phone || service.provider?.phone || null,
+});
+
+setChatSheetVisible(true);
 
   console.log("🟢 STEP 6 — NAVIGATION CALLED");
 } catch (err) {
@@ -694,7 +704,55 @@ useEffect(() => {
   ).start();
 }, [pulse]);
 
+
+
+
+const translateX = useRef(new RNAnimated.Value(0)).current;
+const translateY = useRef(new RNAnimated.Value(0)).current;
+const scale = useRef(new RNAnimated.Value(1)).current;
+
 const scrollY = useRef(new RNAnimated.Value(0)).current;
+const scrollOffset = useRef(0);
+const isScrolling = useRef(false);
+
+
+
+const sheetTranslateY = useRef(new RNAnimated.Value(0)).current;
+
+const handleSheetGesture = RNAnimated.event(
+  [{ nativeEvent: { translationY: sheetTranslateY } }],
+  {
+    useNativeDriver: true,
+    listener: (e) => {
+      const y = e.nativeEvent.translationY;
+      if (y < 0) {
+        sheetTranslateY.setValue(0);
+      }
+    },
+  }
+);
+
+const handleSheetRelease = (e) => {
+  const y = e.nativeEvent.translationY;
+
+  if (y > 120) {
+    RNAnimated.timing(sheetTranslateY, {
+      toValue: 900,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => {
+      setChatSheetVisible(false);
+      sheetTranslateY.setValue(0);
+    });
+  } else {
+    RNAnimated.spring(sheetTranslateY, {
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+  }
+};
+
+
   const blurOpacity = scrollY.interpolate({
     inputRange: [0, 200],
     outputRange: [0, 1],
@@ -704,8 +762,62 @@ const scrollY = useRef(new RNAnimated.Value(0)).current;
   // Gallery card width
   const cardW = useMemo(() => Math.min(280, width * 0.72), []);
 
-  return (
-  <View style={styles.container}>
+return (
+  <PanGestureHandler
+    onGestureEvent={(e) => {
+      if (isScrolling.current) return;
+
+      const x = e.nativeEvent.translationX;
+      const y = e.nativeEvent.translationY;
+
+      translateX.setValue(x);
+      translateY.setValue(y);
+
+      const distance = Math.sqrt(x * x + y * y);
+      const newScale = 1 - distance / 1200;
+
+      scale.setValue(newScale < 0.88 ? 0.88 : newScale);
+    }}
+    onEnded={(e) => {
+      if (isScrolling.current) return;
+
+      const x = e.nativeEvent.translationX;
+      const y = e.nativeEvent.translationY;
+
+      const distance = Math.sqrt(x * x + y * y);
+
+      if (distance > 140) {
+        navigation.goBack();
+      } else {
+        RNAnimated.parallel([
+          RNAnimated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+          }),
+          RNAnimated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }),
+          RNAnimated.spring(scale, {
+            toValue: 1,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }}
+  >
+    <RNAnimated.View
+      style={[
+        styles.container,
+        {
+          transform: [
+            { translateX },
+            { translateY },
+            { scale },
+          ],
+        },
+      ]}
+    >
     {/* ===== WEBSITE MATCHING BACKGROUND ===== */}
    <LinearGradient
   colors={[
@@ -730,20 +842,67 @@ const scrollY = useRef(new RNAnimated.Value(0)).current;
 </RNAnimated.View>
 
 <RNAnimated.ScrollView
+  nestedScrollEnabled
+  directionalLockEnabled
   bounces
   showsVerticalScrollIndicator={false}
   contentContainerStyle={{ paddingBottom: 220 }}
   scrollEventThrottle={16}
-  onScroll={RNAnimated.event(
-    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-    { useNativeDriver: true }
-  )}
 
+ onScrollBeginDrag={() => {
+  isScrolling.current = true;
+}}
+
+onScrollEndDrag={() => {
+  isScrolling.current = false;
+}}
+
+
+  onScroll={(e) => {
+    scrollOffset.current = e.nativeEvent.contentOffset.y;
+    scrollY.setValue(scrollOffset.current);
+  }}
 >
 
 {/* ===== HERO ===== */}
+
+
+
+
+
 <View style={styles.heroWrap}>
   <View style={styles.heroImg}>
+
+
+{/* ===== BACK BUTTON (GLASS - HERO ANCHORED) ===== */}
+<RNAnimated.View style={styles.backButtonContainer}>
+  <BlurView intensity={40} tint="light" style={styles.backButtonBlur}>
+    
+    <View style={styles.backButtonTint} />
+
+    <LinearGradient
+      colors={[
+        "rgba(255,255,255,0.35)",
+        "rgba(255,255,255,0.05)",
+        "transparent",
+      ]}
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
+      style={StyleSheet.absoluteFill}
+    />
+
+    <TouchableOpacity
+      activeOpacity={0.7} // 👈 subtle feedback, no lag
+      onPress={() => navigation.goBack()}
+      style={styles.backButtonInner}
+    >
+      <Ionicons name="chevron-back" size={22} color="#111" />
+    </TouchableOpacity>
+
+  </BlurView>
+</RNAnimated.View>
+
+
 
     <Animated.Image
       sharedTransitionTag={`service-${service._id}`}
@@ -1365,6 +1524,52 @@ if (reviewsRes.data?.success) {
 
   </View>
 )}
+
+
+
+
+
+{/* ===== CHAT BOTTOM SHEET ===== */}
+<Modal
+  visible={chatSheetVisible}
+  animationType="slide"
+  transparent
+  onRequestClose={() => setChatSheetVisible(false)}
+>
+  <View style={styles.sheetOverlay}>
+    <RNAnimated.View
+      style={[
+        styles.sheetContainer,
+        { transform: [{ translateY: sheetTranslateY }] },
+      ]}
+    >
+      <PanGestureHandler
+        onGestureEvent={handleSheetGesture}
+        onHandlerStateChange={handleSheetRelease}
+      >
+        <View style={styles.sheetHeaderDragArea}>
+          <View style={styles.sheetHandle} />
+        </View>
+      </PanGestureHandler>
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 95 : 0}
+      >
+        {chatParams && (
+          <ChatDetailScreen
+            route={{ params: chatParams }}
+            navigation={navigation}
+          />
+        )}
+      </KeyboardAvoidingView>
+    </RNAnimated.View>
+  </View>
+</Modal>
+
+
+
       {/* ===== LIGHTBOX ===== */}
       <ImageViewing
         images={gallerySrc.map((uri) => ({ uri }))}
@@ -1376,9 +1581,15 @@ if (reviewsRes.data?.success) {
         doubleTapToZoomEnabled
         animationType="fade"
       />
-    </View>
-  );
+   </RNAnimated.View>
+</PanGestureHandler>
+);
 }
+
+
+
+
+
 
 // ===== UTIL =====
 function formatPrice(n) {
@@ -1400,6 +1611,81 @@ const styles = StyleSheet.create({
     height: Platform.OS === "ios" ? 90 : 70,
     zIndex: 10,
   },
+
+  sheetOverlay: {
+  flex: 1,
+  backgroundColor: "rgba(0, 0, 0, 0)",
+  justifyContent: "flex-end",
+},
+
+
+
+backButtonContainer: {
+  position: "absolute",
+  top: Platform.OS === "ios" ? 60 : 45,
+  left: 16,
+  zIndex: 20,
+},
+
+backButtonBlur: {
+  width: BACK_BTN_SIZE,
+  height: BACK_BTN_SIZE,
+  borderRadius: BACK_BTN_SIZE / 2,
+  overflow: "hidden",
+
+  // 👇 lighter shadow (less “floating”)
+  shadowColor: "#000",
+  shadowOpacity: 0.08,
+  shadowRadius: 8,
+  shadowOffset: { width: 0, height: 4 },
+  elevation: 4,
+},
+
+backButtonTint: {
+  ...StyleSheet.absoluteFillObject,
+  borderRadius: BACK_BTN_SIZE / 2,
+
+  // 👇 more transparent = less attention
+backgroundColor: "rgba(255,255,255,0.08)" // was ~0.12–0.18
+},
+
+backButtonInner: {
+  flex: 1,
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: BACK_BTN_SIZE / 2,
+
+  // 👇 softer border
+ borderWidth: 0.6,
+borderColor: "rgba(255,255,255,0.25)",
+},
+
+sheetContainer: {
+  flex: 1,
+  marginTop: "20%",
+  backgroundColor: "#fff",
+  borderTopLeftRadius: 40,
+  borderTopRightRadius: 40,
+  overflow: "hidden",
+
+  shadowColor: "#000",
+  shadowOpacity: 0.25,
+  shadowRadius: 24,
+  shadowOffset: { width: 0, height: -10 },
+
+  elevation: 25,
+},
+
+
+sheetHandle: {
+  width: 40,
+  height: 5,
+  borderRadius: 3,
+  backgroundColor: "#D1D5DB",
+  alignSelf: "center",
+  marginTop: 10,
+  marginBottom: 6,
+},
 
 
 ownerActionRow: {
@@ -1514,6 +1800,12 @@ ownerDashboardIconBtn: {
 },
 
 
+sheetHeaderDragArea: {
+  paddingTop: 6,
+  paddingBottom: 8,
+  alignItems: "center",
+  justifyContent: "center",
+},
 
 
  heroWrap: {

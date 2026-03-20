@@ -10,7 +10,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BlurView } from "expo-blur";
@@ -69,9 +69,21 @@ import PayoutScreen from "./src/screens/PayoutScreen";
 import HelpioReceiptScreen from "./src/screens/HelpioReceiptScreen";
 
 
+import { api } from "./src/config/api";
+import { registerForPushNotificationsAsync } from "./src/utils/pushNotifications";
+import { registerNotificationListeners } from "./src/services/notificationService";
+import * as Notifications from "expo-notifications";
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 
 
+const navigationRef = createNavigationContainerRef();
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
@@ -344,7 +356,12 @@ function AuthStack() {
 
 function RootNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+ <Stack.Navigator
+  screenOptions={{
+    headerShown: false,
+    freezeOnBlur: false,
+  }}
+>
       
         {/* Main app */}
         <Stack.Screen name="MainTabs" component={TabNavigator} />
@@ -356,13 +373,14 @@ function RootNavigator() {
         <Stack.Screen name="Register" component={RegisterScreen} />
 
         {/* Pay modal */}
-       <Stack.Screen
+      <Stack.Screen
   name="HelpioPay"
   component={HelpioPayScreen}
   options={{
-    presentation: "fullScreenModal",
-    animation: "fade_from_bottom",
+    presentation: "transparentModal",
+    animation: "fade",
     gestureEnabled: false,
+    contentStyle: { backgroundColor: "transparent" },
   }}
 />
 
@@ -386,7 +404,18 @@ function RootNavigator() {
 
         {/* Everything else unchanged */}
         <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
-        <Stack.Screen name="ServiceDetailScreen" component={ServiceDetailScreen} />
+   <Stack.Screen
+  name="ServiceDetailScreen"
+  component={ServiceDetailScreen}
+  options={{
+    presentation: "card",
+    animation: "fade",
+    animationDuration: 120,
+    gestureEnabled: false, // navigator cannot dismiss
+
+    contentStyle: { backgroundColor: "transparent" },
+  }}
+/>
         <Stack.Screen name="ImagePreview" component={ImagePreviewScreen} />
         <Stack.Screen name="CreateListing" component={CreateListingScreen} />
         <Stack.Screen name="PreviewListing" component={PreviewListingScreen} />
@@ -425,8 +454,24 @@ function RootNavigator() {
 <Stack.Screen
   name="SearchMarketplace"
   component={SearchMarketplaceScreen}
-  options={{ headerShown: false }}
+  options={{
+    headerShown: false,
+    presentation: "card",
+    animation: "fade",
+    animationDuration: 50,
+    gestureEnabled: false,
+
+    contentStyle: { backgroundColor: "transparent" },
+  }}
 />
+
+
+
+<Stack.Screen
+  name="ProviderOnboarding"
+  component={ProviderOnboardingScreen}
+/>
+
 
 
 <Stack.Screen
@@ -467,11 +512,45 @@ function RootNavigator() {
   );
 }
 export default function App() {
-  useEffect(() => {
-    AsyncStorage.getItem("authToken").then(token => {
-      console.log("🔐 JWT:", token);
-    });
-  }, []);
+const user = useAuthStore((state) => state.user);
+
+useEffect(() => {
+  if (!user) return;
+
+  const setupPush = async () => {
+    const authToken = await AsyncStorage.getItem("authToken");
+    console.log("🔐 JWT:", authToken);
+
+    const pushToken = await registerForPushNotificationsAsync();
+
+    if (pushToken) {
+      try {
+        await api.post("/api/users/push-token", {
+          token: pushToken,
+        });
+        console.log("✅ Push token saved");
+      } catch (err) {
+        console.log("❌ Push token save error:", err);
+      }
+    }
+  };
+
+  setupPush();
+}, [user]);
+
+
+useEffect(() => {
+  const setupNotifications = () => {
+    if (!navigationRef.isReady()) return;
+    return registerNotificationListeners(navigationRef);
+  };
+
+  const unsubscribe = setupNotifications();
+
+  return () => {
+    if (unsubscribe) unsubscribe();
+  };
+}, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -483,7 +562,7 @@ export default function App() {
   urlScheme="helpio"
 >
 
-          <NavigationContainer>
+       <NavigationContainer ref={navigationRef}>
             {/* 🔥 ZUSTAND AUTH GATE */}
             <AuthGate />
           </NavigationContainer>

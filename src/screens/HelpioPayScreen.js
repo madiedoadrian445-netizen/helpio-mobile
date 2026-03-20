@@ -38,10 +38,29 @@ export default function HelpioPayScreen({ navigation }) {
 
   const pulse = useRef(new Animated.Value(1)).current;
   const translateY = useRef(new Animated.Value(0)).current;
+
+const blur = translateY.interpolate({
+  inputRange: [0, 140],
+  outputRange: [0, 70],
+  extrapolate: "clamp",
+});
+
+const opacity = translateY.interpolate({
+  inputRange: [0, 90],
+  outputRange: [1, 0],
+  extrapolate: "clamp",
+});
+
+const scale = translateY.interpolate({
+  inputRange: [0, 140],
+  outputRange: [1, 0.985],
+  extrapolate: "clamp",
+});
+
   const successScale = useRef(new Animated.Value(0.6)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
 const contentOpacity = useRef(new Animated.Value(1)).current;
-
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
   if (!isHydrated) {
   return (
@@ -329,14 +348,25 @@ navigation.navigate("HelpioReceipt", {
   ).current;
 
   return (
-    <Animated.View
-      style={{ flex: 1, transform: [{ translateY }] }}
-      {...panResponder.panHandlers}
-    >
-      <SafeAreaView style={styles.safe}>
-        <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
+  <View style={{ flex: 1 }}>
+    <SafeAreaView style={styles.safe}>
+      <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
 
-        
+      <AnimatedBlurView
+        intensity={blur}
+        tint="light"
+        pointerEvents="none"
+        style={StyleSheet.absoluteFill}
+      />
+
+      <Animated.View
+        style={{
+          flex: 1,
+          transform: [{ translateY }, { scale }],
+          opacity,
+        }}
+        {...panResponder.panHandlers}
+      >
 
 {showSuccess && (
   <View style={styles.successOverlay} pointerEvents="none">
@@ -463,11 +493,13 @@ navigation.navigate("HelpioReceipt", {
       >
         <Ionicons name="sparkles-outline" size={22} color="#fff" />
       </TouchableOpacity>
-    </View>
-        </Animated.View>
-      </View>
-    </SafeAreaView>
-  </Animated.View>
+       </View>
+       
+      </Animated.View>
+</View>
+</Animated.View>
+</SafeAreaView>
+</View>
 );
 }
 
