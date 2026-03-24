@@ -92,8 +92,6 @@ const getRelativeTime = () => {
   const progress = useSharedValue(0);
 
  useEffect(() => {
-  progress.value = 0;
-
   progress.value = withTiming(1, {
     duration: 900,
     easing: Easing.out(Easing.cubic),
@@ -137,30 +135,48 @@ useEffect(() => {
 
 
 
+const revenuePoints = analytics.revenueData.map(d => {
+  const [year, month, day] = d.date.split("-");
+
+  return {
+    ...d,
+    date: new Date(year, month - 1, day), // fixes timezone shift
+  };
+});
+
+
+
+
 const maxRevenue =
-  analytics.revenueData.length > 0
-    ? Math.max(...analytics.revenueData.map((d) => d.value))
-    : 1;
+  revenuePoints.length > 0
+    ? Math.max(...revenuePoints.map((d) => Number(d.value) || 0))
+    : 0;
 
+
+
+
+// Add headroom (Amazon behavior)
+const paddedMax = maxRevenue * 1.25;
+
+// Round to clean numbers
 const magnitude =
-  maxRevenue > 0
-    ? Math.pow(10, Math.floor(Math.log10(maxRevenue)))
+  paddedMax > 0
+    ? Math.pow(10, Math.floor(Math.log10(paddedMax)))
     : 1;
 
-    
-const niceMax = Math.ceil(maxRevenue / magnitude) * magnitude;
+const chartMax =
+  paddedMax > 0
+    ? Math.ceil(paddedMax / (magnitude / 2)) * (magnitude / 2)
+    : 100;
 
-/* Dynamic goal scaling */
-const goalStep = niceMax * 0.5;
-
+// Clean evenly spaced axis (top → bottom)
 const axisLevels = [
-  niceMax + goalStep * 4,
-  niceMax + goalStep * 3,
-  niceMax + goalStep * 2,
-  niceMax + goalStep,
-  niceMax,
+  chartMax,
+  chartMax * 0.75,
+  chartMax * 0.5,
+  chartMax * 0.25,
+  0,
 ];
-
 
   const onRefresh = async () => {
   setRefreshing(true);
@@ -275,7 +291,7 @@ const axisLevels = [
 <MiniKpiTile
   label="Invoices Today"
   value={analytics.subscriptions}
-  accent="#22C55E"
+  accent="#34C759"
   isLight={isLight}
 />
         </View>
@@ -376,18 +392,31 @@ const axisLevels = [
       </Text>
     </View>
   ) : (
- analytics.revenueData.slice(-12).map((d, index) => {
- const normalized = d.value / axisLevels[0];
+ revenuePoints.map((d, index) => {
+ 
+ const isToday = index === revenuePoints.length - 1;
+ 
   const MAX_BAR_HEIGHT = 120;
-  const targetHeight = MAX_BAR_HEIGHT * normalized;
+const safeValue = Number(d.value) || 0;
+
+const normalized = chartMax > 0 ? safeValue / chartMax : 0;
+
+const targetHeight =
+  safeValue === 0
+    ? 3
+    : MAX_BAR_HEIGHT * Math.min(normalized, 1);
+
 
   return (
     <View key={index} style={styles.barWrapper}>
-      <AnimatedBar
-        targetHeight={targetHeight}
-        progress={progress}
-        isLight={isLight}
-      />
+   
+
+<AnimatedBar
+  targetHeight={targetHeight}
+  progress={progress}
+  isLight={isLight}
+  isToday={isToday}
+/>
     </View>
   );
 })
@@ -395,28 +424,24 @@ const axisLevels = [
     
   )}
 </View>
-              <View style={styles.xAxisLabelsRow}>
-                <Text
-                  style={[styles.xAxisLabel, { color: theme.subtleText }]}
-                >
-                  Jan 14
-                </Text>
-                <Text
-                  style={[styles.xAxisLabel, { color: theme.subtleText }]}
-                >
-                  Jan 21
-                </Text>
-                <Text
-                  style={[styles.xAxisLabel, { color: theme.subtleText }]}
-                >
-                  Feb 4
-                </Text>
-                <Text
-                  style={[styles.xAxisLabel, { color: theme.subtleText }]}
-                >
-                  Feb 11
-                </Text>
-              </View>
+           <View style={styles.xAxisLabelsRow}>
+  {revenuePoints.map((d, i) => {
+    if (i % 4 !== 0 && i !== revenuePoints.length - 1)  return <View key={i} style={{ width: 20 }} />;
+
+    const label = d.date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+
+    return (
+  <View key={i} style={{ width: 20, alignItems: "center" }}>
+        <Text style={[styles.xAxisLabel, { color: theme.subtleText }]}>
+          {label}
+        </Text>
+      </View>
+    );
+  })}
+</View>
             </View>
           </View>
 
@@ -533,7 +558,7 @@ const DashboardRow = ({ icon, label, onPress, showDivider = true }) => {
 
 
 
-const AnimatedBar = ({ targetHeight, progress, isLight }) => {
+const AnimatedBar = ({ targetHeight, progress, isLight, isToday }) => {
   const animatedStyle = useAnimatedStyle(() => {
     return {
       height: targetHeight * progress.value,
@@ -547,9 +572,11 @@ const AnimatedBar = ({ targetHeight, progress, isLight }) => {
         styles.bar,
         animatedStyle,
         {
-          backgroundColor: isLight
-            ? HELP_BLUE
-            : "rgba(56,189,248,0.95)",
+        backgroundColor: isToday
+  ? HELP_BLUE
+  : isLight
+    ? HELP_BLUE
+    : "rgba(56,189,248,0.95)",
         },
       ]}
     />
@@ -703,28 +730,30 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "rgba(148,163,184,0.35)",
   },
-  barsRow: {
+ barsRow: {
   flexDirection: "row",
   alignItems: "flex-end",
-  justifyContent: "space-between",
-  paddingHorizontal: 10,
+  justifyContent: "center",
   height: 120,
 },
+
+
 barWrapper: {
-  width: 18,
+  width: 20,
+  alignItems: "center",
 },
 
 bar: {
-  width: 18,
+  width: 12,
   borderTopLeftRadius: 8,
   borderTopRightRadius: 8,
 },
-  xAxisLabelsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 6,
-    paddingRight: 8,
-  },
+xAxisLabelsRow: {
+  flexDirection: "row",
+  justifyContent: "center",
+},
+
+
   xAxisLabel: {
     fontSize: 10,
   },

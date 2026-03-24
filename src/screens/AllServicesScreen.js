@@ -703,7 +703,7 @@ ListHeaderComponent={
 
 
 {/* Inline compact search */}
-<View style={{ width: 165, marginLeft: -6 }}>
+<View style={{ flex: 1, marginLeft: 80 }}>
  <Animated.View style={styles.searchPill}>
     
     <BlurView intensity={35} tint="light" style={StyleSheet.absoluteFill} />
@@ -901,7 +901,7 @@ ListFooterComponent={
     {(() => {
   
   if (!service.photos || service.photos.length === 0) {
-  console.log("SEED ISSUE:", service._id, service);
+
 }
   const firstPhoto = service.photos?.[0];
   let imageUrl = null;
@@ -942,7 +942,8 @@ const buildUrl = (path) => {
     );
   }
 
-console.log("IMAGE URL:", imageUrl);
+
+
 
 return (
   <Animated.Image
@@ -1609,4 +1610,5 @@ locationText: {
   sortOption: { paddingVertical: 12 },
   sortText: { fontSize: 18, fontWeight: "700" },
 });
+
 

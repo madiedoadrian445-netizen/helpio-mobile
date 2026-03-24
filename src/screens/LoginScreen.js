@@ -14,11 +14,14 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
-
+import { CommonActions } from "@react-navigation/native";
 import { useTheme } from "../ThemeContext";
 import useAuthStore from "../store/auth";
 import { login as loginApi } from "../api/auth";
 import { api } from "../config/api";
+import { navigationRef } from "../navigation/navigationRef";
+
+
 
 const HELP_BLUE = "#00A6FF";
 
@@ -26,9 +29,11 @@ const HELP_BLUE = "#00A6FF";
 const SS_EMAIL = "helpio_login_email";
 const SS_PASSWORD = "helpio_login_password";
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen({ navigation, route }) {
   const { theme } = useTheme();
   const isDark = !!theme?.isDark;
+const continueAsGuest = useAuthStore((state) => state.continueAsGuest);
+const redirectDataRef = React.useRef(route?.params || null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -42,6 +47,34 @@ export default function LoginScreen({ navigation }) {
   const [bioLoading, setBioLoading] = useState(false);
 
   const tint = useMemo(() => (isDark ? "dark" : "light"), [isDark]);
+
+
+
+const handlePostLoginRedirect = () => {
+  const redirectTo = route?.params?.redirectTo;
+  const params = route?.params?.params || route?.params;
+
+  if (!navigationRef.isReady()) return;
+
+  if (redirectTo) {
+    navigationRef.dispatch(
+      CommonActions.reset({
+        index: 1,
+        routes: [
+          { name: "MainTabs" },
+          { name: redirectTo, params },
+        ],
+      })
+    );
+  } else {
+    navigationRef.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: "MainTabs" }],
+      })
+    );
+  }
+};
 
   useEffect(() => {
     (async () => {
@@ -94,48 +127,73 @@ export default function LoginScreen({ navigation }) {
   };
 
   const performLogin = async (em, pw, { fromBiometric } = {}) => {
-    if (!em || !pw) {
-      Alert.alert("Missing Fields", "Enter email and password.");
-      return;
+  if (!em || !pw) {
+    Alert.alert("Missing Fields", "Enter email and password.");
+    return;
+  }
+
+  if (fromBiometric) setBioLoading(true);
+  else setLoading(true);
+
+  try {
+    const data = await loginApi(em, pw);
+
+    if (!data?.token || !data?.user) {
+      throw new Error("Invalid login response");
     }
 
-    if (fromBiometric) setBioLoading(true);
-    else setLoading(true);
-
+    let provider = null;
     try {
-      const data = await loginApi(em, pw);
+      const res = await api.get("/api/providers/me");
+      provider = res.data?.provider || null;
+    } catch {}
 
-      if (!data?.token || !data?.user) {
-        throw new Error("Invalid login response");
-      }
+    // ✅ Set auth
+    await useAuthStore.getState().setAuth({
+      token: data.token,
+      refreshToken: data.refreshToken,
+      user: data.user,
+      provider,
+    });
 
-      let provider = null;
-      try {
-        const res = await api.get("/api/providers/me");
-        provider = res.data?.provider || null;
-      } catch {}
+    // ✅ Stop loaders BEFORE navigation
+    setLoading(false);
+    setBioLoading(false);
 
-      await useAuthStore.getState().setAuth({
-        token: data.token,
-        user: data.user,
-        provider,
-      });
 
-      // Save creds AFTER successful login (so Face ID can work next time)
-      await saveCreds(em, pw);
+// ✅ ALWAYS use ONE navigation path
+if (!navigationRef.isReady()) return;
 
-      setLoading(false);
-      setBioLoading(false);
-    } catch (err) {
-      setLoading(false);
-      setBioLoading(false);
+navigationRef.dispatch(
+  CommonActions.reset({
+    index: route?.params?.redirectTo ? 1 : 0,
+    routes: [
+      { name: "MainTabs" },
+      ...(route?.params?.redirectTo
+        ? [
+            {
+              name: route.params.redirectTo,
+              params: route.params?.params || route.params,
+            },
+          ]
+        : []),
+    ],
+  })
+);
 
-      Alert.alert(
-        "Login Failed",
-        err?.response?.data?.message || err.message || "Invalid credentials"
-      );
-    }
-  };
+    // ✅ Save credentials after
+    await saveCreds(em, pw);
+
+  } catch (err) {
+    setLoading(false);
+    setBioLoading(false);
+
+    Alert.alert(
+      "Login Failed",
+      err?.response?.data?.message || err.message || "Invalid credentials"
+    );
+  }
+};
 
   const handleLogin = () => performLogin(email.trim(), password);
 
@@ -235,28 +293,38 @@ export default function LoginScreen({ navigation }) {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.continueText}>Continue</Text>
+              <Text style={styles.continueText}>LOGIN</Text>
             )}
           </TouchableOpacity>
 
-          {/* FACE ID */}
-          {bioReady && hasSavedCreds && (
-            <TouchableOpacity
-              style={styles.bioBtn}
-              onPress={handleBiometricLogin}
-              disabled={loading || bioLoading}
-              activeOpacity={0.9}
-            >
-              {bioLoading ? (
-                <ActivityIndicator color={HELP_BLUE} />
-              ) : (
-                <>
-                  <Ionicons name="scan-outline" size={20} color={HELP_BLUE} />
-                  <Text style={styles.bioText}>Continue with {bioLabel}</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
+
+
+
+{/* CONTINUE AS GUEST */}
+<TouchableOpacity
+  style={styles.bioBtn}
+onPress={() => {
+  continueAsGuest();
+
+  requestAnimationFrame(() => {
+    if (!navigationRef.isReady()) return;
+
+    navigationRef.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: "MainTabs" }],
+      })
+    );
+  });
+}}
+  disabled={loading || bioLoading}
+  activeOpacity={0.9}
+>
+  <Ionicons name="person-outline" size={20} color={HELP_BLUE} />
+  <Text style={styles.bioText}>Continue as Guest</Text>
+</TouchableOpacity>
+
+
 
           {/* CREATE ACCOUNT */}
          <TouchableOpacity onPress={() => navigation.navigate("Register")}>

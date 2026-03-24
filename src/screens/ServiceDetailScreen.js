@@ -570,17 +570,16 @@ const listingId = useMemo(() => {
 
   
 const canChat = useMemo(() => {
-  const isLoggedIn = !!token;
   const hasProviderLoaded = !!listingProviderId;
 
   return (
     !isPreview &&
-    isLoggedIn &&
     hasProviderLoaded &&
     !isOwnListing &&
     !loadingService
   );
-}, [isPreview, token, listingProviderId, isOwnListing, loadingService]);
+}, [isPreview, listingProviderId, isOwnListing, loadingService]);
+
 
 
 const startConversationFromBox = async () => {
@@ -597,10 +596,25 @@ const startConversationFromBox = async () => {
 
   if (sending) return;
 
-  if (!canChat) {
-    Alert.alert("Unavailable", "You cannot message this listing.");
-    return;
-  }
+// 🔐 REQUIRE LOGIN FIRST
+if (!token) {
+  console.log("🚨 NO TOKEN - redirecting to login");
+
+const rootNav =
+  navigation.getParent?.()?.getParent?.() || navigation;
+
+rootNav.navigate("LoginScreen", {
+  redirectTo: "ServiceDetailScreen",
+  params: {
+    service,
+    initialMessage,
+  },
+});
+
+
+
+  return;
+}
 
   if (!listingId || !isValidObjectId(listingId)) {
     Alert.alert("Unavailable", "Messaging is only available for live listings.");
@@ -1072,7 +1086,7 @@ onScrollEndDrag={() => {
             styles.sendButton,
             (!initialMessage.trim() || sending) && { opacity: 0.5 },
           ]}
-          disabled={!canChat || !initialMessage.trim() || sending}
+        disabled={!initialMessage.trim() || sending}
           onPress={startConversationFromBox}
         >
           <Text style={styles.sendText}>

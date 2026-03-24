@@ -10,7 +10,10 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { NavigationContainer } from "@react-navigation/native";
+import { navigationRef } from "./src/navigation/navigationRef";
+
+
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { BlurView } from "expo-blur";
@@ -83,7 +86,8 @@ Notifications.setNotificationHandler({
 
 
 
-const navigationRef = createNavigationContainerRef();
+
+
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
@@ -95,28 +99,34 @@ function EmptyPlaceholder() {
 }
 
 function AuthGate() {
-  const token = useAuthStore((state) => state.token);
-  const user = useAuthStore((state) => state.user);
   const isHydrated = useAuthStore((state) => state.isHydrated);
   const hydrate = useAuthStore((state) => state.hydrate);
 
-
+  const token = useAuthStore((state) => state.token);
+  const isGuest = useAuthStore((state) => state.isGuest);
 
   useEffect(() => {
     hydrate();
   }, []);
 
   if (!isHydrated) {
-    return null; // or splash loader
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <Text>Loading...</Text>
+      </View>
+    );
   }
 
-  // Not logged in
- if (!token || !user) {
-  return <AuthStack />;
+  // ✅ FIXED LOGIC
+  if (!token && !isGuest) {
+    return <AuthStack key="auth" />;
+  }
+
+  // ✅ Guest OR Logged in → go inside app
+  return <RootNavigator key={isGuest ? "guest" : "user"} />;
 }
 
-  return <RootNavigator />;
-}
+
 
 function TabNavigator({ navigation }) {
 
@@ -318,21 +328,15 @@ function TabNavigator({ navigation }) {
     <Tab.Screen
   name="Dashboard"
   component={AnalyticsDashboardScreen}
-  listeners={({ navigation }) => ({
-    tabPress: (e) => {
-      const { user } = useAuthStore.getState();
 
-      const providerId =
-        user?.providerId && typeof user.providerId === "object"
-          ? user.providerId._id
-          : user?.providerId || null;
+listeners={() => ({
+  tabPress: () => {
+    // ✅ allow navigation always
+  },
+})}
 
-      if (!providerId) {
-        e.preventDefault();
-        navigation.navigate("BusinessPlaceProducts");
-      }
-    },
-  })}
+
+
 />
 
     </Tab.Navigator>
@@ -587,4 +591,3 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 });
-

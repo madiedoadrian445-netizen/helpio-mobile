@@ -14,12 +14,24 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useTheme } from "../ThemeContext"; // ✅ global theme hook
+import useAuthStore from "../store/auth";
+
 
 const HELP_IO_BLUE = "#00A6FF";
 
 export default function MenuScreen({ navigation }) {
   const { darkMode, toggleTheme, theme } = useTheme(); // ✅ use global theme
   const [notifications, setNotifications] = useState(true);
+
+
+const logout = useAuthStore((state) => state.logout);
+
+const handleLogout = () => {
+  logout();
+};
+
+
+
 
   const Row = ({ icon, label, onPress, isSwitch, switchValue, onToggle }) => (
     <TouchableOpacity
@@ -258,7 +270,7 @@ export default function MenuScreen({ navigation }) {
           <TouchableOpacity
             style={[styles.row, { paddingVertical: 14 }]}
             activeOpacity={0.8}
-            onPress={() => navigation.navigate("LoginScreen")}
+           onPress={handleLogout}
           >
             <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
             <Text style={[styles.rowLabel, { color: "#FF3B30" }]}>Log Out</Text>

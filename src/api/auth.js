@@ -29,12 +29,14 @@ export async function registerProvider({
   email,
   password,
   companyName,
+   phone, 
 }) {
   const body = {
     name: (name || "").trim(),
     email: (email || "").trim().toLowerCase(),
     password: (password || "").trim(),
     companyName: (companyName || "").trim(),
+     phone: (phone || "").replace(/\D/g, ""),
   };
 
   const { data } = await api.post("/api/auth/register-provider", body);

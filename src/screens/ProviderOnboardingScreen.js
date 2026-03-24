@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -17,7 +17,13 @@ import { registerProvider } from "../api/auth";
 import useAuthStore from "../store/auth";
 const HELPIO_BLUE = "#00A6FF";
 const { width } = Dimensions.get("window");
+const formatPhoneToE164 = (phone) => {
+  const digits = phone.replace(/\D/g, "");
 
+  return digits.startsWith("1")
+    ? `+${digits}`
+    : `+1${digits}`;
+};
 /* ---------------- DATA ---------------- */
 
 const LANGUAGES = [
@@ -54,6 +60,11 @@ export default function ProviderOnboardingScreen({ navigation }) {
 const { presentIdentityVerificationSheet } = useStripe();
   const translateX = React.useRef(new Animated.Value(0)).current;
 
+const [verificationCode, setVerificationCode] = useState("");
+const [sendingCode, setSendingCode] = useState(false);
+const [verifyingCode, setVerifyingCode] = useState(false);
+const [cooldown, setCooldown] = useState(0);
+const timerRef = React.useRef(null);
 const [firstName, setFirstName] = useState("");
 const [lastName, setLastName] = useState("");
 const [email, setEmail] = useState("");
@@ -63,26 +74,148 @@ const [phone, setPhone] = useState("");
 const [businessName, setBusinessName] = useState("");
 const [zipCode, setZipCode] = useState("");
 
+const handleSendCode = async () => {
+  try {
+    console.log("CLICKED SEND CODE");
+
+    if (sendingCode || cooldown > 0) {
+      console.log("Blocked");
+      return;
+    }
+
+    if (phone.length < 10) {
+      console.log("Invalid phone");
+      return;
+    }
+
+    setSendingCode(true);
+
+    const finalPhone = formatPhoneToE164(phone);
+    console.log("Formatted:", finalPhone);
+
+    const res = await sendPhoneCodeRequest(finalPhone);
+    console.log("API RESPONSE:", res);
+
+    if (!res?.success) {
+      console.log("Failed to send code");
+      return;
+    }
+
+    console.log("Code sent ✅");
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+
+    setCooldown(30);
+
+    const newTimer = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(newTimer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    timerRef.current = newTimer;
+
+  } catch (err) {
+    console.log("Send code error:", err);
+  } finally {
+    setSendingCode(false);
+  }
+};
+
+useEffect(() => {
+  return () => {
 
 
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+  };
+}, []);
 
+const sendPhoneCodeRequest = async (phone) => {
+  const res = await fetch(
+    "https://helpio-backend.onrender.com/api/auth/send-phone-code",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+    }
+  );
+
+  return res.json();
+};
+
+const verifyPhoneCodeRequest = async (phone, code) => {
+  const res = await fetch(
+    "https://helpio-backend.onrender.com/api/auth/verify-phone-code",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, code }),
+    }
+  );
+
+  return res.json();
+};
 
 const handleRegisterProvider = async () => {
- try {
-
-  if (!firstName || !lastName || !email || !password || !businessName || !zipCode || !phone) {
-    console.log("Missing required fields");
-    return;
-  }
-
-    const data = await registerProvider({
-      name: `${firstName} ${lastName}`,
-      email: email.trim().toLowerCase(),
-      password: password.trim(),
-      companyName: businessName.trim(),
-      phone: phone.trim(),
-      zipCode: zipCode.trim(),
+  try {
+    console.log("REGISTER INPUTS:", {
+      firstName,
+      lastName,
+      email,
+      password,
+      businessName,
+      zipCode,
+      phone,
     });
+
+    // 🔴 VALIDATION (more informative)
+    if (!firstName) {
+      console.log("Missing: firstName");
+      return;
+    }
+    if (!lastName) {
+      console.log("Missing: lastName");
+      return;
+    }
+    if (!email) {
+      console.log("Missing: email");
+      return;
+    }
+    if (!password) {
+      console.log("Missing: password");
+      return;
+    }
+    if (!businessName) {
+      console.log("Missing: businessName");
+      return;
+    }
+    if (!zipCode) {
+      console.log("Missing: zipCode");
+      return;
+    }
+    if (!phone) {
+      console.log("Missing: phone");
+      return;
+    }
+
+    // ✅ REGISTER
+ const data = await registerProvider({
+  name: `${firstName} ${lastName}`,
+  email: email.trim().toLowerCase(),
+  password: password.trim(),
+  companyName: businessName.trim(),
+  phone: formatPhoneToE164(phone), // 🔥 REQUIRED
+});
+
+    console.log("REGISTER RESPONSE:", data);
 
     if (!data?.token || !data?.user) {
       throw new Error("Invalid register response");
@@ -94,13 +227,15 @@ const handleRegisterProvider = async () => {
       provider: { _id: data.user.providerId },
     });
 
-   setStep(5);// continue onboarding
+    console.log("REGISTER SUCCESS ✅");
+
+    // 👉 MOVE TO NEXT STEP
+    setStep(5);
 
   } catch (err) {
     console.log("Register error:", err);
   }
 };
-
 
 
 
@@ -174,11 +309,44 @@ console.log("AUTH TOKEN BEFORE STRIPE:", token);
 };
 
  const animateNext = async () => {
+if (step === 4) {
+  try {
+    if (verificationCode.length !== 6) {
+      console.log("Code incomplete");
+      return;
+    }
 
-  if (step === 4) {
-    await handleRegisterProvider();
-    return;
+    setVerifyingCode(true);
+
+    const finalPhone = formatPhoneToE164(phone);
+
+  const res = await verifyPhoneCodeRequest(
+  finalPhone,
+  verificationCode
+);
+
+console.log("VERIFY RESPONSE:", res);
+
+// ❌ REMOVE success check
+// ✅ ONLY block if backend explicitly sends error
+if (!res?.success) {
+  console.log("Verification failed:", res?.message);
+  return;
+}
+
+console.log("Code verified ✅");
+
+await handleRegisterProvider();
+
+  } catch (err) {
+    console.log("Verify error:", err);
+  } finally {
+    setVerifyingCode(false);
   }
+
+  return;
+}
+
 
   if (step === STEPS.length - 1) {
     navigation.replace("MainTabs");
@@ -228,8 +396,8 @@ console.log("AUTH TOKEN BEFORE STRIPE:", token);
             />
           </View>
         )}
-
-       <Animated.View
+<Animated.View
+  pointerEvents="box-none"
   style={[
     styles.content,
     { transform: [{ translateX }] },
@@ -265,14 +433,27 @@ console.log("AUTH TOKEN BEFORE STRIPE:", token);
     {STEPS[step].subtitle && (
       <Text style={styles.subtitle}>{STEPS[step].subtitle}</Text>
     )}
-  {renderInput(step, {
+ {renderInput(step, {
   businessName,
   setBusinessName,
   zipCode,
   setZipCode,
   phone,
-  setPhone
+  setPhone,
+  sendingCode,
+  cooldown,
+  verificationCode,
+  setVerificationCode,
+  verifyingCode,
+  animateNext,
+  timerRef,
+  setCooldown,
+  setSendingCode,
+  handleSendCode,
 })}
+
+
+
   </>
 )}
 
@@ -283,8 +464,24 @@ console.log("AUTH TOKEN BEFORE STRIPE:", token);
         {/* Continue */}
       {step !== 0 && step !== 5 && (
 
-  <TouchableOpacity style={styles.continueBtn} onPress={animateNext}>
-    <Text style={styles.continueText}>CREATE ID</Text>
+
+
+ <TouchableOpacity
+  style={styles.continueBtn}
+  onPress={animateNext}
+  disabled={
+    verifyingCode ||
+    (step === 4 && verificationCode.length !== 6)
+  }
+>
+
+
+   <Text style={styles.continueText}>
+  {step === 4
+    ? (verifyingCode ? "VERIFYING..." : "VERIFY PHONE")
+    : "CREATE ID"}
+</Text>
+
   </TouchableOpacity>
 )}
 
@@ -421,8 +618,21 @@ function renderInput(step, {
   zipCode,
   setZipCode,
   phone,
-  setPhone
+  setPhone,
+  sendingCode,
+  cooldown,
+  verificationCode,
+  setVerificationCode,
+  verifyingCode,
+  animateNext,
+  timerRef,
+  setCooldown,
+  setSendingCode,
+  handleSendCode,
 }) {
+
+
+
   switch (step) {
     case 2:
   return (
@@ -476,22 +686,77 @@ function renderInput(step, {
      <TextInput
   placeholder="Phone number"
   value={phone}
-  onChangeText={setPhone}
+ onChangeText={(text) => {
+  const digits = text.replace(/\D/g, "").slice(0, 10);
+  setPhone(digits);
+}}
   keyboardType="phone-pad"
   placeholderTextColor="#8E8E93"
   style={styles.appleInput}
 />
       </View>
 
+
+
+<View style={{ zIndex: 10, elevation: 10 }}>
+  <TouchableOpacity
+    activeOpacity={0.7}
+    onPress={() => {
+      console.log("PRESS WORKING");
+      handleSendCode();
+    }}
+    disabled={sendingCode || cooldown > 0}
+    style={{
+      marginTop: 10,
+      backgroundColor:
+        sendingCode || cooldown > 0 ? "#D1D5DB" : "#E5E7EB",
+      padding: 12,
+      opacity: sendingCode || cooldown > 0 ? 0.6 : 1,
+      borderRadius: 10,
+      alignItems: "center",
+    }}
+  >
+    <Text
+      style={{
+        color: sendingCode || cooldown > 0 ? "#6B7280" : "#000",
+        fontWeight: "500",
+      }}
+    >
+      {sendingCode
+        ? "Sending..."
+        : cooldown > 0
+        ? `Resend in ${cooldown}s`
+        : "Send Code"}
+    </Text>
+  </TouchableOpacity>
+</View>
+
+
+
+
       {/* Verification Code */}
       <View style={styles.appleInputWrap}>
-        <TextInput
-          placeholder="Verification code"
-          placeholderTextColor="#8E8E93"
-          keyboardType="numeric"
-          style={styles.appleInput}
-        />
+      <TextInput
+  maxLength={6}
+  placeholder="Verification code"
+  value={verificationCode}
+ onChangeText={(text) => {
+  setVerificationCode(text);
+
+
+}}
+  keyboardType="numeric"
+  style={[
+  styles.appleInput,
+  { textAlign: "center", letterSpacing: 6 }
+]}
+/>
       </View>
+
+
+
+
+
 
       <Text style={styles.appleFootnote}>
         Verifying your phone number helps Helpio maintain a trusted marketplace,
@@ -693,7 +958,3 @@ const styles = StyleSheet.create({
     color: "#C7C7CC",
   },
 });
-
-
-
-

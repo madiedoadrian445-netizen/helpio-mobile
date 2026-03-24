@@ -1,5 +1,5 @@
 // src/screens/InvoicesHomeScreen.js
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   SafeAreaView,
   View,
@@ -22,7 +22,19 @@ import { Swipeable } from "react-native-gesture-handler";
 import useAuthStore from "../store/auth";
 
 
+
+
+
+
 export default function InvoicesHomeScreen({ navigation }) {
+
+
+const [analytics, setAnalytics] = useState({
+  totalLast30Days: 0,
+});
+const [loadingAnalytics, setLoadingAnalytics] = useState(true);
+
+
   const { darkMode, theme } = useTheme();
   const route = useRoute();
 
@@ -37,43 +49,63 @@ const [allInvoices, setAllInvoices] = useState([]);
   const isLight = !darkMode;
 const canvasColor = isLight ? "#EEF1F6" : "#0B0D12";
 
+const invoiceStats = useMemo(() => ({
+  sent: allInvoices.filter(i => i.status === "SENT").length,
+  paid: allInvoices.filter(i => i.status === "PAID").length,
+  overdue: allInvoices.filter(i => i.status === "OVERDUE").length,
+}), [allInvoices]);
+
+
+useFocusEffect(
+  useCallback(() => {
+    let mounted = true;
+
+    const loadData = async () => {
+      try {
+        setLoadingAnalytics(true);
+        setLoadingRecent(true);
+
+        const [analyticsRes, invoicesRes] = await Promise.all([
+          api.get("/api/analytics"),
+          api.get("/api/invoices/provider/me"),
+        ]);
+
+        // Analytics
+        if (mounted && analyticsRes.data?.success) {
+          setAnalytics(analyticsRes.data.analytics);
+        }
+
+        // Invoices
+        if (mounted && invoicesRes.data?.success) {
+          const sorted = [...(invoicesRes.data.invoices || [])].sort(
+            (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+          );
+
+          setAllInvoices(sorted);
+          setRecentInvoices(sorted.slice(0, 5));
+        }
+      } catch (err) {
+        console.log("❌ Combined fetch error:", err.response?.data || err);
+      } finally {
+        if (mounted) {
+          setLoadingAnalytics(false);
+          setLoadingRecent(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      mounted = false;
+    };
+  }, [refreshKey])
+);
+
   /* --------------------------------------------------
      FETCH RECENT INVOICES (LIVE DATA — REFRESH SAFE)
   -------------------------------------------------- */
-  useFocusEffect(
-    useCallback(() => {
-      let mounted = true;
-
-      const fetchRecentInvoices = async () => {
-        try {
-          setLoadingRecent(true);
-          const res = await api.get("/api/invoices/provider/me");
-
-          if (mounted && res.data?.success) {
-            const sorted = [...(res.data.invoices || [])].sort(
-              (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-            );
-          setAllInvoices(sorted);
-setRecentInvoices(sorted.slice(0, 5));
-          }
-        } catch (err) {
-          console.log(
-            "❌ Fetch recent invoices error:",
-            err.response?.data || err
-          );
-        } finally {
-          mounted && setLoadingRecent(false);
-        }
-      };
-
-      fetchRecentInvoices();
-
-      return () => {
-        mounted = false;
-      };
-    }, [refreshKey])
-  );
-
+  
   const renderSegmentButton = (key, label) => {
     const active = tab === key;
 
@@ -200,23 +232,35 @@ const renderRightActions = (invoiceId) => (
           This Month
         </Text>
 
-        <Text style={[styles.mainAmount, { color: theme.text }]}>$0.00</Text>
+       <Text style={[styles.mainAmount, { color: theme.text }]}>
+  {loadingAnalytics
+    ? "..."
+    : `$${Number(analytics.totalLast30Days).toLocaleString()}`}
+</Text>
 
         <Text style={[styles.cardSubtitle, { color: theme.subtleText }]}>
           Total revenue
         </Text>
 
-        <View style={styles.chipsRow}>
-          <View style={styles.chip}>
-            <Text style={styles.chipLabel}>0 sent</Text>
-          </View>
-          <View style={styles.chip}>
-            <Text style={styles.chipLabel}>0 paid</Text>
-          </View>
-          <View style={styles.chip}>
-            <Text style={styles.chipLabel}>0 overdue</Text>
-          </View>
-        </View>
+       <View style={styles.chipsRow}>
+  <View style={styles.chip}>
+    <Text style={styles.chipLabel}>
+      {invoiceStats.sent} sent
+    </Text>
+  </View>
+
+  <View style={styles.chip}>
+    <Text style={styles.chipLabel}>
+      {invoiceStats.paid} paid
+    </Text>
+  </View>
+
+  <View style={styles.chip}>
+    <Text style={styles.chipLabel}>
+      {invoiceStats.overdue} overdue
+    </Text>
+  </View>
+</View>
       </View>
 
       {/* Quick Actions */}
