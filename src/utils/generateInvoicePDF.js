@@ -6,6 +6,65 @@ import { Alert } from "react-native";
 
 const HELP_BLUE = "#00A6FF";
 
+
+const formatPhoneNumber = (phone) => {
+  if (!phone) return "";
+  let cleaned = phone.replace(/\D/g, "");
+  if (cleaned.length === 11 && cleaned.startsWith("1")) {
+    cleaned = cleaned.slice(1);
+  }
+  if (cleaned.length !== 10) return phone;
+  return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+};
+
+const formatAddress = (address) => {
+  if (!address) return "";
+
+  let cleaned = address
+    .trim()
+    .replace(/\s+/g, " ")
+
+    // Fix number-letter combos (1785w → 1785 w, 76st → 76 st)
+    .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+    .replace(/([a-zA-Z])(\d)/g, "$1 $2");
+
+  // Match structure: street + city + state + zip
+  const match = cleaned.match(/^(.*)\s([A-Za-z]+)\s([A-Za-z]{2})\s(\d{5})$/);
+
+  if (!match) return cleaned;
+
+  let [, street, city, state, zip] = match;
+
+  const capitalize = (word) =>
+    word.length === 2
+      ? word.toUpperCase()
+      : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+
+  // 🔥 Normalize street suffixes (THIS is the upgrade)
+  const normalizeStreet = (word) => {
+    const map = {
+      st: "St",
+      ave: "Ave",
+      blvd: "Blvd",
+      rd: "Rd",
+      dr: "Dr",
+      ln: "Ln",
+      ct: "Ct",
+      pl: "Pl",
+    };
+
+    const lower = word.toLowerCase();
+    return map[lower] || capitalize(word);
+  };
+
+  const formattedStreet = street
+    .split(" ")
+    .map(normalizeStreet)
+    .join(" ");
+
+return `${formattedStreet}<br/>${capitalize(city)}, ${state.toUpperCase()} ${zip}`;
+};
+
 /* ---------------- Utility ---------------- */
 const currency = (n) =>
   (isNaN(Number(n)) ? 0 : Number(n)).toLocaleString("en-US", {
@@ -129,8 +188,8 @@ export async function generateInvoicePDF({
               <td style="vertical-align:top;width:60%;">
                 <div class="section">BILL TO</div>
                 <h2>${client.name}</h2>
-                <div class="meta">${client.addr1}</div>
-                <div class="meta">${client.phone}</div>
+                <div class="meta">${formatAddress(client.addr1)}</div>
+                <div class="meta">${formatPhoneNumber(client.phone)}</div>
                 <div class="meta">${client.email}</div>
               </td>
               <td style="vertical-align:top;width:40%;padding-left:10px;">
@@ -203,7 +262,7 @@ export async function generateInvoicePDF({
 
     /* ---------------- Generate PDF ---------------- */
     const { uri: tmpUri } = await Print.printToFileAsync({ html });
-    const fileName = `Invoice-${invoiceMeta.number || "Untitled"}.pdf`;
+   const fileName = `Invoice-${invoiceMeta.number || "Untitled"}-${Date.now()}.pdf`;
     const destUri = FileSystem.cacheDirectory + fileName;
 
     try {

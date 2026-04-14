@@ -44,25 +44,29 @@ export default function RegisterScreen({ navigation }) {
         password,
       });
 
-      if (!data?.token || !data?.user) {
+    if (!data?.token || !data?.refreshToken || !data?.user) {
         throw new Error("Invalid register response");
       }
 
       // ✅ Auto-login after signup
-      await useAuthStore.getState().setAuth({
-        token: data.token,
-        user: data.user,
-        provider: null,
-      });
+     await useAuthStore.getState().setAuth({
+  token: data.token,
+  refreshToken: data.refreshToken,
+  user: data.user,
+  provider: null,
+});
 
       setLoading(false);
     } catch (err) {
       setLoading(false);
 
-      Alert.alert(
-        "Registration Failed",
-        err?.response?.data?.message || err.message || "Unable to create account"
-      );
+    const message =
+  err?.response?.data?.message ||
+  (err?.response?.status === 409
+    ? "Email already in use"
+    : "Something went wrong. Please try again.");
+
+Alert.alert("Registration Failed", message);
     }
   };
 

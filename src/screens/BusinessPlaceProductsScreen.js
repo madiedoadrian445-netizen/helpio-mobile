@@ -99,8 +99,26 @@ const DotPattern = () => {
   );
 };
 
-  return (
-    <View style={styles.container}>
+return (
+  <View style={styles.container}>
+
+    {/* CLOSE BUTTON */}
+    <TouchableOpacity
+      onPress={() => navigation.goBack()}
+      activeOpacity={0.7}
+      style={styles.closeButton}
+    >
+      <Ionicons name="close" size={24} color="#fff" />
+    </TouchableOpacity>
+
+    {/* Background */}
+    <LinearGradient
+      colors={["#80808cff", "#1A1A1F"]}
+      style={StyleSheet.absoluteFill}
+    />
+
+
+
       {/* Background */}
       <LinearGradient
         colors={["#80808cff", "#1A1A1F"]}
@@ -468,7 +486,18 @@ vignette: {
   ...StyleSheet.absoluteFillObject,
 },
 
-
+closeButton: {
+  position: "absolute",
+  top: 60,
+  left: 20,
+  zIndex: 20,
+  width: 40,
+  height: 40,
+  borderRadius: 20,
+  justifyContent: "center",
+  alignItems: "center",
+  backgroundColor: "rgba(0,0,0,0.35)", // same iOS style
+},
 
 haloRing: {
   position: "absolute",

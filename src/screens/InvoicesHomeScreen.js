@@ -1,5 +1,5 @@
 // src/screens/InvoicesHomeScreen.js
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   SafeAreaView,
   View,
@@ -8,9 +8,9 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
-  Image,
   ActivityIndicator,
   Alert,
+ RefreshControl,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,7 +20,8 @@ import { api } from "../config/api";
 import InvoicesListScreen from "./InvoicesListScreen";
 import { Swipeable } from "react-native-gesture-handler";
 import useAuthStore from "../store/auth";
-
+import { Animated } from "react-native";
+import { useRef } from "react";
 
 
 
@@ -29,9 +30,23 @@ import useAuthStore from "../store/auth";
 export default function InvoicesHomeScreen({ navigation }) {
 
 
+const [analyticsError, setAnalyticsError] = useState(false);
+const [recentInvoicesError, setRecentInvoicesError] = useState(false);
+const [refreshing, setRefreshing] = useState(false);
+const [deletingInvoiceId, setDeletingInvoiceId] = useState(null);
+
+
+
+
 const [analytics, setAnalytics] = useState({
   totalLast30Days: 0,
+  totalInvoices: 0,
+  totalTransactions: 0,
+  totalClients: 0,
+  totalRevenueAllTime: 0,
 });
+
+
 const [loadingAnalytics, setLoadingAnalytics] = useState(true);
 
 
@@ -42,65 +57,134 @@ const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const initialTab = route.params?.returnToTab || "dashboard";
   const [tab, setTab] = useState(initialTab);
 const user = useAuthStore((state) => state.user);
+const isHydrated = useAuthStore((state) => state.isHydrated);
+const token = useAuthStore((state) => state.token);
 const providerId = user?.providerId;
+const analyticsCache = useAuthStore((state) => state.analyticsCache);
+const setAnalyticsCache = useAuthStore((state) => state.setAnalyticsCache);
+
+const safeStat = (value, fallback) => {
+  return value > 0 ? value : fallback || 0;
+};
+
+  const [previewUnlocked, setPreviewUnlocked] = useState(false);
+
+const isRealProvider = !!user?.providerId;
+
+
   const [recentInvoices, setRecentInvoices] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
-const [allInvoices, setAllInvoices] = useState([]);
+const [lastUpdated, setLastUpdated] = useState(Date.now());
+
+
+
   const isLight = !darkMode;
 const canvasColor = isLight ? "#EEF1F6" : "#0B0D12";
 
-const invoiceStats = useMemo(() => ({
-  sent: allInvoices.filter(i => i.status === "SENT").length,
-  paid: allInvoices.filter(i => i.status === "PAID").length,
-  overdue: allInvoices.filter(i => i.status === "OVERDUE").length,
-}), [allInvoices]);
+
+const payoutAnim = useRef(new Animated.Value(1)).current;
+const dashboardAnim = useRef(new Animated.Value(1)).current;
+const invoiceAnim = useRef(new Animated.Value(1)).current;
+const clientAnim = useRef(new Animated.Value(1)).current;
+
+
+
+
+
+const loadDashboardData = useCallback(async () => {
+  if (!isHydrated || !token || !isRealProvider) {
+    setLoadingAnalytics(false);
+    setLoadingRecent(false);
+    return;
+  }
+
+  try {
+    setLoadingAnalytics(true);
+    setLoadingRecent(true);
+    setAnalyticsError(false);
+    setRecentInvoicesError(false);
+
+    const [analyticsRes, invoicesRes] = await Promise.all([
+      api.get("/api/analytics").catch(() => null),
+      api
+        .get("/api/invoices/provider/me?limit=5&sort=-createdAt")
+        .catch(() => null),
+    ]);
+
+    // ✅ Analytics
+    if (analyticsRes?.data?.success) {
+      const data = analyticsRes.data.analytics || {};
+
+      setAnalytics({
+        totalLast30Days: Number(data.totalLast30Days) || 0,
+        totalInvoices: Number(data.totalInvoices) || 0,
+        totalTransactions: Number(data.totalTransactions) || 0,
+        totalClients: Number(data.totalClients) || 0,
+        totalRevenueAllTime: Number(data.totalRevenueAllTime) || 0,
+      });
+
+      setAnalyticsCache((prev) => ({
+        ...prev,
+        revenueAllTime:
+          Number(data.totalRevenueAllTime) > 0
+            ? Number(data.totalRevenueAllTime)
+            : prev.revenueAllTime,
+        revenue30Days:
+          Number(data.totalLast30Days) > 0
+            ? Number(data.totalLast30Days)
+            : prev.revenue30Days,
+        totalInvoices:
+          Number(data.totalInvoices) > 0
+            ? Number(data.totalInvoices)
+            : prev.totalInvoices,
+        totalTransactions:
+          Number(data.totalTransactions) > 0
+            ? Number(data.totalTransactions)
+            : prev.totalTransactions,
+        totalClients:
+          Number(data.totalClients) > 0
+            ? Number(data.totalClients)
+            : prev.totalClients,
+        updatedAt: Date.now(),
+      }));
+    } else {
+      setAnalyticsError(true);
+    }
+
+    // ✅ Recent invoices
+    if (invoicesRes?.data?.success) {
+      setRecentInvoices(invoicesRes.data.invoices || []);
+    } else {
+      setRecentInvoicesError(true);
+    }
+
+    setLastUpdated(Date.now());
+  } catch (err) {
+    console.log("Dashboard load error:", err);
+    setAnalyticsError(true);
+    setRecentInvoicesError(true);
+  } finally {
+    setLoadingAnalytics(false);
+    setLoadingRecent(false);
+    setRefreshing(false);
+  }
+}, [isHydrated, token, isRealProvider, setAnalyticsCache]);
+
+
+useEffect(() => {
+  if (!isHydrated || !token || !isRealProvider) return;
+  loadDashboardData();
+}, [isHydrated, token, isRealProvider, loadDashboardData]);
+
 
 
 useFocusEffect(
   useCallback(() => {
-    let mounted = true;
-
-    const loadData = async () => {
-      try {
-        setLoadingAnalytics(true);
-        setLoadingRecent(true);
-
-        const [analyticsRes, invoicesRes] = await Promise.all([
-          api.get("/api/analytics"),
-          api.get("/api/invoices/provider/me"),
-        ]);
-
-        // Analytics
-        if (mounted && analyticsRes.data?.success) {
-          setAnalytics(analyticsRes.data.analytics);
-        }
-
-        // Invoices
-        if (mounted && invoicesRes.data?.success) {
-          const sorted = [...(invoicesRes.data.invoices || [])].sort(
-            (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-          );
-
-          setAllInvoices(sorted);
-          setRecentInvoices(sorted.slice(0, 5));
-        }
-      } catch (err) {
-        console.log("❌ Combined fetch error:", err.response?.data || err);
-      } finally {
-        if (mounted) {
-          setLoadingAnalytics(false);
-          setLoadingRecent(false);
-        }
-      }
-    };
-
-    loadData();
-
-    return () => {
-      mounted = false;
-    };
-  }, [refreshKey])
+    if (!isHydrated || !token || !isRealProvider) return;
+    loadDashboardData();
+  }, [isHydrated, token, isRealProvider, loadDashboardData])
 );
+
 
   /* --------------------------------------------------
      FETCH RECENT INVOICES (LIVE DATA — REFRESH SAFE)
@@ -161,36 +245,52 @@ useFocusEffect(
   };
 
 
+const deleteInvoice = async (invoiceId) => {
+  if (deletingInvoiceId) return;
+
+  if (!isRealProvider) {
+    navigation.navigate("BusinessPlaceProducts");
+    return;
+  }
+
+  const previousInvoices = recentInvoices;
+
+  try {
+    setDeletingInvoiceId(invoiceId);
+
+    // optimistic UI
+    setRecentInvoices((prev) =>
+      prev.filter((inv) => inv._id !== invoiceId)
+    );
+
+    await api.delete(`/api/invoices/${invoiceId}`);
+
+    Alert.alert("Deleted", "Invoice deleted successfully.");
+  } catch (err) {
+    // rollback if failed
+    setRecentInvoices(previousInvoices);
+
+    console.log("Delete invoice error:", err.response?.data || err);
+
+    Alert.alert(
+      "Delete failed",
+      "We could not delete this invoice. Please try again."
+    );
+  } finally {
+    setDeletingInvoiceId(null);
+  }
+};
+
 const confirmDelete = (invoiceId) => {
   Alert.alert(
     "Delete Invoice",
     "Are you sure you want to delete this invoice?",
     [
-      {
-        text: "Discard",
-        style: "cancel",
-      },
+      { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
-        onPress: async () => {
-          try {
-            await api.delete(`/api/invoices/${invoiceId}`);
-
-            setRecentInvoices((prev) =>
-              prev.filter((inv) => inv._id !== invoiceId)
-            );
-
-            setAllInvoices((prev) =>
-              prev.filter((inv) => inv._id !== invoiceId)
-            );
-          } catch (err) {
-            console.log(
-              "Delete invoice error:",
-              err.response?.data || err
-            );
-          }
-        },
+        onPress: () => deleteInvoice(invoiceId),
       },
     ]
   );
@@ -207,7 +307,10 @@ const renderRightActions = (invoiceId) => (
   </View>
 );
   const renderDashboard = () => (
-   <ScrollView
+ <ScrollView
+  refreshControl={
+    <RefreshControl refreshing={refreshing} onRefresh={loadDashboardData} />
+  }
   showsVerticalScrollIndicator={false}
   contentContainerStyle={{ paddingBottom: 80 }}
 >
@@ -229,104 +332,57 @@ const renderRightActions = (invoiceId) => (
         ]}
       >
         <Text style={[styles.cardSubtitle, { color: theme.subtleText }]}>
-          This Month
+          All-Time Revenue
         </Text>
 
        <Text style={[styles.mainAmount, { color: theme.text }]}>
-  {loadingAnalytics
-    ? "..."
-    : `$${Number(analytics.totalLast30Days).toLocaleString()}`}
+
+{`$${Number(
+analytics.totalRevenueAllTime > 0
+  ? analytics.totalRevenueAllTime
+  : analyticsCache.revenueAllTime || 0
+).toLocaleString("en-US")}`}
 </Text>
 
         <Text style={[styles.cardSubtitle, { color: theme.subtleText }]}>
           Total revenue
         </Text>
 
-       <View style={styles.chipsRow}>
+<View style={styles.chipsRow}>
   <View style={styles.chip}>
     <Text style={styles.chipLabel}>
-      {invoiceStats.sent} sent
+      {(
+safeStat(analytics.totalInvoices, analyticsCache.totalInvoices)
+      ).toLocaleString()} Invoices
     </Text>
   </View>
 
   <View style={styles.chip}>
     <Text style={styles.chipLabel}>
-      {invoiceStats.paid} paid
+      {(
+safeStat(analytics.totalTransactions, analyticsCache.totalTransactions)
+      ).toLocaleString()} Transactions
     </Text>
   </View>
 
   <View style={styles.chip}>
     <Text style={styles.chipLabel}>
-      {invoiceStats.overdue} overdue
+      {(
+safeStat(analytics.totalClients, analyticsCache.totalClients)
+      ).toLocaleString()} Clients
     </Text>
   </View>
 </View>
+
       </View>
 
       {/* Quick Actions */}
       <View style={styles.quickRow}>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={[
-            styles.quickCard,
-            {
-              backgroundColor: isLight
-                ? "rgba(255,255,255,0.9)"
-                : "rgba(28,28,30,0.9)",
-              shadowOpacity: isLight ? 0.1 : 0,
-            },
-          ]}
-          onPress={() => navigation.push("InvoiceBuilderScreen")}
-        >
-          <Ionicons name="document-text-outline" size={26} color="#007AFF" />
-          <Text style={[styles.quickTitle, { color: theme.text }]}>
-            New Invoice
-          </Text>
-          <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
-            Create and send
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={[
-            styles.quickCard,
-            {
-              backgroundColor: isLight
-                ? "rgba(255,255,255,0.9)"
-                : "rgba(28,28,30,0.9)",
-              shadowOpacity: isLight ? 0.1 : 0,
-            },
-          ]}
-          onPress={() =>
-            navigation.navigate("ClientsScreen", { returnToTab: "clients" })
-          }
-        >
-          <Ionicons name="person-add-outline" size={26} color="#34C759" />
-          <Text style={[styles.quickTitle, { color: theme.text }]}>
-            CRM / Add Client
-          </Text>
-          <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
-            Save details
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-     {/* Subscriptions + Dashboard Row */}
-<View style={[styles.quickRow, { marginTop: 16 }]}>
-  
- {/* Payouts & Balances */}
-<TouchableOpacity
-  activeOpacity={0.9}
- onPress={() =>
-  navigation.navigate("PayoutsBalancesScreen", {
-    providerId,
-  })
-}
+      <Animated.View
   style={[
     styles.quickCard,
-    styles.quickCardLarge,
     {
+      transform: [{ scale: invoiceAnim }],
       backgroundColor: isLight
         ? "rgba(255,255,255,0.9)"
         : "rgba(28,28,30,0.9)",
@@ -334,37 +390,242 @@ const renderRightActions = (invoiceId) => (
     },
   ]}
 >
-  <View style={styles.quickContent}>
-    <Ionicons name="wallet-outline" size={24} color="#007AFF" />
-    <Text style={[styles.quickTitle, { color: theme.text }]}>
-      Payouts & Balances
-    </Text>
-    <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
-      Transfers & earnings
-    </Text>
-  </View>
-</TouchableOpacity>
+  <TouchableOpacity
+    activeOpacity={1}
+    style={{ flex: 1 }}
+    onPressIn={() => {
+      Animated.timing(invoiceAnim, {
+        toValue: 0.97,
+        duration: 60,
+        useNativeDriver: true,
+      }).start();
+    }}
+    onPressOut={() => {
+      Animated.spring(invoiceAnim, {
+        toValue: 1,
+        tension: 220,
+        friction: 18,
+        useNativeDriver: true,
+      }).start();
+    }}
+    onPress={() => {
+    if (!isRealProvider) {
+  navigation.navigate("BusinessPlaceProducts");
+  return;
+}
 
 
+      navigation.push("InvoiceBuilderScreen");
+    }}
+  >
+    <Animated.View
+      style={[
+        styles.quickContent,
+        {
+          opacity: invoiceAnim.interpolate({
+            inputRange: [0.985, 1],
+            outputRange: [0.96, 1],
+          }),
+        },
+      ]}
+    >
+      <Ionicons name="document-text-outline" size={26} color="#007AFF" />
+      <Text style={[styles.quickTitle, { color: theme.text }]}>
+        New Invoice
+      </Text>
+      <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
+        Create and send
+      </Text>
+    </Animated.View>
+  </TouchableOpacity>
+</Animated.View>
+
+       <Animated.View
+  style={[
+    styles.quickCard,
+    {
+      transform: [{ scale: clientAnim }],
+      backgroundColor: isLight
+        ? "rgba(255,255,255,0.9)"
+        : "rgba(28,28,30,0.9)",
+      shadowOpacity: isLight ? 0.1 : 0,
+    },
+  ]}
+>
+  <TouchableOpacity
+    activeOpacity={1}
+    style={{ flex: 1 }}
+    onPressIn={() => {
+      Animated.timing(clientAnim, {
+        toValue: 0.97,
+        duration: 60,
+        useNativeDriver: true,
+      }).start();
+    }}
+    onPressOut={() => {
+      Animated.spring(clientAnim, {
+        toValue: 1,
+        tension: 220,
+        friction: 18,
+        useNativeDriver: true,
+      }).start();
+    }}
+    onPress={() => {
+    if (!isRealProvider) {
+        navigation.navigate("BusinessPlaceProducts");
+        return;
+      }
+
+      navigation.navigate("ClientsScreen", { returnToTab: "clients" });
+    }}
+  >
+    <Animated.View
+      style={[
+        styles.quickContent,
+        {
+          opacity: clientAnim.interpolate({
+            inputRange: [0.985, 1],
+            outputRange: [0.96, 1],
+          }),
+        },
+      ]}
+    >
+      <Ionicons name="person-add-outline" size={26} color="#34C759" />
+      <Text style={[styles.quickTitle, { color: theme.text }]}>
+        CRM / Add Client
+      </Text>
+      <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
+        Save details
+      </Text>
+    </Animated.View>
+  </TouchableOpacity>
+</Animated.View>
+
+
+      </View>
+
+     {/* Subscriptions + Dashboard Row */}
+<View style={[styles.quickRow, { marginTop: 16 }]}>
+  
+ {/* Payouts & Balances */}
+
+
+
+
+<Animated.View
+  style={[
+    styles.quickCard,
+    styles.quickCardLarge,
+    {
+      transform: [{ scale: payoutAnim }],
+      backgroundColor: isLight
+        ? "rgba(255,255,255,0.9)"
+        : "rgba(28,28,30,0.9)",
+      shadowOpacity: isLight ? 0.1 : 0,
+    },
+  ]}
+>
+<TouchableOpacity
+  activeOpacity={1}
+  style={{ flex: 1 }}
+ onPressIn={() => {
+  Animated.timing(payoutAnim, {
+    toValue: 0.96,
+    duration: 60, // ⚡ instant but smooth
+    useNativeDriver: true,
+  }).start();
+}}
+
+  onPressOut={() => {
+    Animated.spring(payoutAnim, {
+      toValue: 1,
+      tension: 220,
+      friction: 18,
+      useNativeDriver: true,
+    }).start();
+  }}
+onPress={() => {
+  if (!isRealProvider) {
+  navigation.navigate("BusinessPlaceProducts");
+  return;
+}
+
+
+  navigation.navigate("PayoutsBalancesScreen", {
+    providerId,
+  });
+}}
+>
+
+  
+    <Animated.View
+      style={[
+        styles.quickContent, // ✅ KEEP YOUR ORIGINAL LAYOUT
+        {
+          opacity: payoutAnim.interpolate({
+            inputRange: [0.985, 1],
+            outputRange: [0.96, 1],
+          }),
+        },
+      ]}
+    >
+      <Ionicons name="wallet-outline" size={24} color="#007AFF" />
+      <Text style={[styles.quickTitle, { color: theme.text }]}>
+        Payouts & Balances
+      </Text>
+      <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
+        Transfers & earnings
+      </Text>
+    </Animated.View>
+  </TouchableOpacity>
+</Animated.View>
 
 
   {/* Dashboard */}
+<Animated.View
+  style={[
+    styles.quickCard,
+    styles.quickCardLarge,
+    {
+      transform: [{ scale: dashboardAnim }],
+      backgroundColor: isLight
+        ? "rgba(255,255,255,0.9)"
+        : "rgba(28,28,30,0.9)",
+      shadowOpacity: isLight ? 0.1 : 0,
+    },
+  ]}
+>
   <TouchableOpacity
-    activeOpacity={0.9}
+    activeOpacity={1}
+    style={{ flex: 1 }}
+    onPressIn={() => {
+      Animated.timing(dashboardAnim, {
+        toValue: 0.97, // 👈 same premium feel
+        duration: 60,
+        useNativeDriver: true,
+      }).start();
+    }}
+    onPressOut={() => {
+      Animated.spring(dashboardAnim, {
+        toValue: 1,
+        tension: 220,
+        friction: 18,
+        useNativeDriver: true,
+      }).start();
+    }}
     onPress={() => navigation.navigate("AnalyticsDashboard")}
-   style={[
-  styles.quickCard,
-  styles.quickCardLarge, // ⭐ makes them bigger
-  {
-    backgroundColor: isLight
-      ? "rgba(255,255,255,0.9)"
-      : "rgba(28,28,30,0.9)",
-    shadowOpacity: isLight ? 0.1 : 0,
-  },
-]}
-
   >
-    <View style={styles.quickContent}>
+    <Animated.View
+      style={[
+        styles.quickContent,
+        {
+          opacity: dashboardAnim.interpolate({
+            inputRange: [0.985, 1],
+            outputRange: [0.96, 1],
+          }),
+        },
+      ]}
+    >
       <Ionicons name="stats-chart-outline" size={24} color="#007AFF" />
       <Text style={[styles.quickTitle, { color: theme.text }]}>
         Dashboard
@@ -372,23 +633,66 @@ const renderRightActions = (invoiceId) => (
       <Text style={[styles.quickSubtitle, { color: theme.subtleText }]}>
         Performance & revenue
       </Text>
-    </View>
+    </Animated.View>
   </TouchableOpacity>
+</Animated.View>
 
 </View>
 
       {/* Recent Invoices */}
-      <View style={{ marginTop: 32 }}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>
-          Recent invoices
-        </Text>
+      <View style={{ marginTop: 15 }}>
+      
+      
+      <View style={styles.dividerWrap}>
+  <View style={styles.line} />
+  <Text style={[styles.dividerText, { color: theme.subtleText }]}>
+    RECENT INVOICES
+  </Text>
+  <View style={styles.line} />
+</View>
 
-        {loadingRecent ? (
-          <ActivityIndicator style={{ marginTop: 16 }} />
-        ) : !recentInvoices.length ? (
-          <Text style={[styles.emptyText, { color: theme.subtleText }]}>
-            No invoices yet.
-          </Text>
+
+
+    {loadingRecent ? (
+  <ActivityIndicator style={{ marginTop: 16 }} />
+
+) : recentInvoicesError ? (
+  <View style={styles.emptyWrap}>
+    <Ionicons name="alert-circle-outline" size={26} color="rgba(60,60,67,0.5)" />
+
+    <Text style={[styles.emptyTitle, { color: theme.text }]}>
+      Couldn’t load invoices
+    </Text>
+
+    <Text style={[styles.emptySubtitle, { color: theme.subtleText }]}>
+      Please try again
+    </Text>
+
+    <TouchableOpacity
+      onPress={loadDashboardData}
+      style={{ marginTop: 12 }}
+    >
+      <Text style={{ color: "#007AFF", fontWeight: "600" }}>
+        Retry
+      </Text>
+    </TouchableOpacity>
+  </View>
+
+) : !recentInvoices.length ? (
+  <View style={styles.emptyWrap}>
+    <Ionicons name="document-text-outline" size={26} color="rgba(60,60,67,0.35)" />
+
+    <Text style={[styles.emptyTitle, { color: theme.text }]}>
+      No invoices yet
+    </Text>
+
+    <Text style={[styles.emptySubtitle, { color: theme.subtleText }]}>
+      Invoices you create will appear here
+    </Text>
+  </View>
+
+
+
         ) : (
           <View
             style={[
@@ -439,19 +743,11 @@ const renderRightActions = (invoiceId) => (
               </Text>
             </View>
 
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={[styles.invoiceTotal, { color: theme.text }]}>
-                ${Number(inv.total).toFixed(2)}
-              </Text>
-              <Text
-                style={[
-                  styles.invoiceStatus,
-                  { color: statusColor },
-                ]}
-              >
-                {inv.status}
-              </Text>
-            </View>
+         <View style={{ alignItems: "flex-end" }}>
+  <Text style={[styles.invoiceTotal, { color: theme.text }]}>
+    ${Number(inv.total).toFixed(2)}
+  </Text>
+</View>
           </View>
         </TouchableOpacity>
       </Swipeable>
@@ -524,7 +820,48 @@ const renderRightActions = (invoiceId) => (
       </View>
     </View>
 
-    <View style={styles.content}>{content}</View>
+
+<View style={{ flex: 1 }}>
+
+  {/* ACTUAL CONTENT */}
+ <View style={!isRealProvider && !previewUnlocked ? styles.blurredContent : null}>
+    {content}
+  </View>
+
+  {/* 🔒 BLUR OVERLAY FOR CUSTOMERS */}
+{!isRealProvider && !previewUnlocked && (
+  <View style={styles.lockOverlay}>
+    <BlurView intensity={15} tint="light" style={StyleSheet.absoluteFill} />
+    <View style={styles.frostLayer} />
+
+    {/* CENTERED LABEL */}
+    <View style={styles.centerWrap}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+      
+      
+        onPress={() => {
+  setPreviewUnlocked(true);
+}}
+
+
+
+        style={styles.providerHint}
+      >
+        <BlurView intensity={30} tint="light" style={styles.hintBlur}>
+          <Ionicons name="eye-outline" size={18} color="#007AFF" />
+          <Text style={styles.hintText}>
+            Tap to view as a Provider
+          </Text>
+        </BlurView>
+      </TouchableOpacity>
+    </View>
+  </View>
+)}
+
+</View>
+
+
   </SafeAreaView>
 );
 }
@@ -575,6 +912,119 @@ deleteAction: {
   justifyContent: "center",
   alignItems: "center",
 },
+
+
+
+
+
+
+
+emptyWrap: {
+  alignItems: "center",
+  marginTop: 20,
+},
+
+emptyTitle: {
+  marginTop: 10,
+  fontSize: 15,
+  fontWeight: "600",
+},
+
+emptySubtitle: {
+  marginTop: 4,
+  fontSize: 13,
+  textAlign: "center",
+},
+
+
+
+
+dividerWrap: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginBottom: 12,
+  marginTop: 32,
+  gap: 10,
+},
+
+line: {
+  flex: 1,
+  height: 1,
+  backgroundColor: "rgba(120,120,128,0.25)",
+},
+
+dividerText: {
+  fontSize: 12,
+  fontWeight: "600",
+  letterSpacing: 1,
+},
+
+
+
+
+
+
+
+blurredContent: {
+  opacity: 0.7,
+  transform: [{ scale: 0.98 }],
+},
+
+lockOverlay: {
+  ...StyleSheet.absoluteFillObject,
+},
+
+frostLayer: {
+  ...StyleSheet.absoluteFillObject,
+  backgroundColor: 'rgba(255,255,255,0.25)',
+},
+
+
+
+
+
+
+
+
+
+centerWrap: {
+  ...StyleSheet.absoluteFillObject,
+  justifyContent: "center",
+  alignItems: "center",
+  paddingBottom: 120, // 👈 THIS moves it UP
+},
+
+
+providerHint: {
+  borderRadius: 24,
+  overflow: "hidden",
+},
+
+hintBlur: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingVertical: 12,
+  paddingHorizontal: 18,
+  borderRadius: 24,
+  gap: 8,
+
+  // subtle iOS glass edge
+  borderWidth: 0.5,
+  borderColor: "rgba(255,255,255,0.5)",
+},
+
+hintText: {
+  fontSize: 14,
+  fontWeight: "600",
+  color: "#007AFF",
+},
+
+
+
+
+
+
+
 
 
   card: {

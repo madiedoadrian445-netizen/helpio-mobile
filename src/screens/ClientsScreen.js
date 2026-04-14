@@ -14,55 +14,94 @@ import {
   FlatList,
   TextInput,
   Platform,
-  RefreshControl,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../ThemeContext";
 import { API_BASE_URL } from "../config/api";
 import { useFocusEffect } from "@react-navigation/native"; // ⭐ ADDED
+import useAuthStore from "../store/auth";
+import IosAvatar from "../components/IosAvatar";
+import { LinearGradient } from "expo-linear-gradient";
+
 
 const HELP_BLUE = "#00A6FF";
 
-export default function ClientsScreen({ navigation }) {
+
+
+
+export default function ClientsScreen({ navigation, route }) {
+const isPicker =
+  route?.params?.selectMode || route?.params?.isPicker;
+
+  
+  const onSelect = route?.params?.onSelect;
+
+const formatPhoneNumber = (phone) => {
+  if (!phone) return "";
+
+  const cleaned = phone.replace(/\D/g, "");
+
+  if (cleaned.length !== 10) return phone;
+
+  const area = cleaned.slice(0, 3);
+  const middle = cleaned.slice(3, 6);
+  const last = cleaned.slice(6);
+
+  return `(${area}) ${middle}-${last}`;
+};
+
+
   const { darkMode, theme } = useTheme();
 
   const [query, setQuery] = useState("");
-  const [sortMode, setSortMode] = useState("recent");
+
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const getToken = async () => {
-   return await AsyncStorage.getItem("authToken");
-  };
+ const token = useAuthStore((state) => state.token);
 
-  const loadCustomers = useCallback(async () => {
-    try {
-      setLoading(true);
-      const token = await getToken();
+const loadCustomers = useCallback(async () => {
+  try {
+    setLoading(true);
 
-      const res = await fetch(`${API_BASE_URL}/api/customers`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-
-console.log("🔥 CLIENTS RESPONSE:", data);
-
-
-      if (data.success) {
-        setCustomers(data.customers || data.customer || data.customerData || []);
-      }
-    } catch (err) {
-      console.log("Error loading customers:", err);
-    } finally {
-      setLoading(false);
+    // ✅ Use Zustand token (already declared above)
+    if (!token) {
+      console.log("❌ No token in Zustand");
+      setCustomers([]);
+      return;
     }
-  }, []);
+
+    const res = await fetch(`${API_BASE_URL}/api/customers`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await res.json();
+
+    console.log("🔥 CLIENTS RESPONSE:", data);
+
+    if (data.success) {
+      const list =
+        data.customers ||
+        data.customer ||
+        data.customerData ||
+        [];
+
+      setCustomers(Array.isArray(list) ? list : []);
+    } else {
+      console.log("❌ API ERROR:", data.message);
+      setCustomers([]);
+    }
+
+  } catch (err) {
+    console.log("Error loading customers:", err);
+  } finally {
+    setLoading(false);
+  }
+}, [token]); // ✅ IMPORTANT
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -70,9 +109,12 @@ console.log("🔥 CLIENTS RESPONSE:", data);
     setRefreshing(false);
   };
 
-  useEffect(() => {
+ useEffect(() => {
+  if (token) {
     loadCustomers();
-  }, []);
+  }
+}, [token]);
+
 
   /* -----------------------------------------------------
      ⭐ AUTO-REFRESH WHEN RETURNING TO THIS SCREEN
@@ -100,14 +142,11 @@ console.log("🔥 CLIENTS RESPONSE:", data);
       });
     }
 
-    if (sortMode === "az") {
-      list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    } else if (sortMode === "recent") {
-      list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    }
+    // 🍏 Apple-style: always sort by name
+list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
     return list;
-  }, [query, sortMode, customers]);
+}, [query, customers]);
 
   const renderClient = ({ item }) => {
     const initials = (item.name || "")
@@ -127,22 +166,22 @@ console.log("🔥 CLIENTS RESPONSE:", data);
           },
         ]}
         activeOpacity={0.9}
-        onPress={() =>
-          navigation.navigate("ClientProfile", { client: item })
-        }
+       
+       
+        onPress={() => {
+  if (isPicker && onSelect) {
+    onSelect(item);
+    navigation.goBack();
+  } else {
+    navigation.navigate("ClientProfile", { client: item });
+  }
+}}
+
+
       >
-        <View
-          style={[
-            styles.avatar,
-            {
-              backgroundColor: darkMode
-                ? "rgba(255,255,255,0.05)"
-                : "rgba(0,0,0,0.04)",
-            },
-          ]}
-        >
-          <Text style={styles.avatarText}>{initials}</Text>
-        </View>
+     <View style={{ marginRight: 10 }}>
+  <IosAvatar name={item.name} size={44} />
+</View>
 
         <View style={styles.clientInfo}>
           <View style={styles.clientTopRow}>
@@ -163,9 +202,9 @@ console.log("🔥 CLIENTS RESPONSE:", data);
             </Text>
           ) : null}
 
-          <Text style={[styles.metaText, { color: theme.subtleText }]}>
-            {item.phone || "No phone"}
-          </Text>
+     <Text style={[styles.metaText, { color: theme.subtleText }]}>
+  {item.phone ? formatPhoneNumber(item.phone) : "No phone"}
+</Text>
         </View>
 
         <Ionicons
@@ -177,42 +216,74 @@ console.log("🔥 CLIENTS RESPONSE:", data);
     );
   };
 
-  function SortChip({ label, mode }) {
-    const active = sortMode === mode;
-    return (
+
+
+function EmptyClientsState({ navigation, darkMode, theme, isPicker, onSelect }) {
+  return (
+    <View style={styles.emptyWrap}>
+    <View
+  style={[
+    styles.emptyAvatarWrap,
+    {
+      backgroundColor: darkMode
+        ? "rgba(255,255,255,0.06)"
+        : "rgba(0,0,0,0.04)",
+    },
+  ]}
+>
+  <Ionicons
+    name="person"
+    size={38}
+    color={darkMode ? "#8E8E93" : "#8E8E93"}
+  />
+</View>
+
+      <Text style={[styles.emptyTitle, { color: theme.text }]}>
+        No clients yet
+      </Text>
+
+      <Text style={[styles.emptySubtitle, { color: theme.subtleText }]}>
+        Add your first client to start managing invoices and jobs.
+      </Text>
+
       <TouchableOpacity
-        onPress={() => setSortMode(mode)}
-        style={[
-          styles.sortChip,
-          {
-            backgroundColor: active
-              ? darkMode
-                ? "rgba(0,166,255,0.25)"
-                : "rgba(0,166,255,0.16)"
-              : darkMode
-              ? "rgba(255,255,255,0.04)"
-              : "rgba(0,0,0,0.04)",
-            borderColor: active ? HELP_BLUE : "transparent",
-          },
-        ]}
+        style={styles.emptyButton}
+     onPress={() =>
+  navigation.navigate("AddClient", {
+    fromPicker: isPicker,
+    onSelect: onSelect,
+  })
+}
       >
-        <Text
-          style={[
-            styles.sortLabel,
-            { color: active ? HELP_BLUE : theme.subtleText },
-          ]}
-        >
-          {label}
-        </Text>
+        <Text style={styles.emptyButtonText}>Add Client</Text>
       </TouchableOpacity>
-    );
-  }
+    </View>
+  );
+}
+
+
+
 
   return (
-    <SafeAreaView
-      style={[styles.safe, { backgroundColor: theme.background }]}
-    >
-      <BlurView intensity={50} tint={theme.blurTint} style={styles.header}>
+  <View style={{ flex: 1 }}>
+
+   <LinearGradient
+  colors={["#EEF0F6", "#F2F2F7", "#F7F8FC"]}
+  locations={[0, 0.5, 1]}
+  start={{ x: 0.5, y: 0 }}
+  end={{ x: 0.5, y: 1 }}
+  style={StyleSheet.absoluteFill}
+/>
+    <SafeAreaView style={styles.safe}>
+
+  <View
+  style={[
+    styles.header,
+    {
+      top: route?.params?.isPicker ? 45 : 0,
+    },
+  ]}
+>
         <View style={styles.headerSide}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>
             Clients
@@ -225,83 +296,120 @@ console.log("🔥 CLIENTS RESPONSE:", data);
           CRM • Helpio BusinessPlace
         </Text>
 
-        <TouchableOpacity
-          style={styles.headerSideRight}
-          onPress={() => navigation.navigate("AddClient")}
-        >
-          <View style={styles.addButton}>
-            <Ionicons name="add" size={22} color="#fff" />
-          </View>
-        </TouchableOpacity>
-      </BlurView>
+      <TouchableOpacity
+ onPress={() =>
+  navigation.navigate("AddClient", {
+    fromPicker: isPicker,
+    onSelect: onSelect,
+  })
+}
+    style={styles.quickAddBtn}
+  >
+    <BlurView intensity={40} tint={darkMode ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+  <Ionicons name="add" size={22} color="#fff" />
+  </TouchableOpacity>
+
+
+     </View>
 
 
 
-      <View style={styles.content}>
+    <View
+  style={[
+    styles.content,
+    {
+      paddingTop: route?.params?.isPicker ? 160 : 60,
+    },
+  ]}
+>
 
   {/* 🔒 TOP CONTROLS */}
   <View style={styles.controlsWrap}>
 
-    {/* Dashboard */}
-    <TouchableOpacity
-      onPress={() => navigation.navigate("CRMDashboard")}
-      style={styles.dashboardButton}
-    >
-      <Ionicons
-        name="stats-chart-outline"
-        size={18}
-        color={darkMode ? "#FFF" : "#111"}
-        style={{ marginRight: 6 }}
-      />
-      <Text style={styles.dashboardLabel}>Dashboard</Text>
-    </TouchableOpacity>
-
+   
+    
     {/* Search */}
-    <View
+<View style={styles.searchRow}>
+
+  {/* Search Pill */}
+  <View style={styles.searchPill}>
+    
+    <BlurView intensity={35} tint={darkMode ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+    <View style={styles.searchInnerLight} />
+    <View style={styles.searchPillTint} />
+
+    <Ionicons
+      name="search"
+      size={17}
+      color="#8E8E93"
+      style={{ marginRight: 8 }}
+    />
+
+    <TextInput
+      value={query}
+      onChangeText={setQuery}
+      placeholder="Search clients"
+      placeholderTextColor="#9CA3AF"
       style={[
-        styles.searchBar,
-        {
-          backgroundColor: darkMode
-            ? "rgba(255,255,255,0.06)"
-            : "rgba(0,0,0,0.04)",
-        },
+        styles.searchInputNew,
+        { color: theme.text }
       ]}
-    >
-      <Ionicons name="search" size={18} />
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Search clients…"
-        value={query}
-        onChangeText={setQuery}
-      />
-    </View>
+    />
+
+    {query.length > 0 && (
+      <TouchableOpacity onPress={() => setQuery("")}>
+        <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+      </TouchableOpacity>
+    )}
+  </View>
+
+  {/* Optional quick add button */}
+ 
+
+</View>
 
     {/* Sort */}
-    <View style={styles.sortRow}>
-      <SortChip label="Recent" mode="recent" />
-      <SortChip label="A–Z" mode="az" />
-    </View>
+   
 
   </View>
 
   {/* 📄 CONTACTS LIST */}
-  <FlatList
-    data={filteredClients}
-    keyExtractor={(item) => item._id}
-    renderItem={renderClient}
-    contentContainerStyle={{
-      paddingHorizontal: 14,
-      paddingTop: 6,
-      paddingBottom: 40,
-    }}
-    showsVerticalScrollIndicator={false}
-    keyboardShouldPersistTaps="handled"
-    ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-  />
+ <FlatList
+  data={filteredClients}
+  keyExtractor={(item) => item._id}
+  renderItem={renderClient}
+
+ ListEmptyComponent={
+  !loading && filteredClients.length === 0 ? (
+   <EmptyClientsState
+  navigation={navigation}
+  darkMode={darkMode}
+  theme={theme}
+  isPicker={isPicker}
+  onSelect={onSelect}
+/>
+
+
+  ) : null
+}
+
+  contentContainerStyle={{
+    flexGrow: 1, // 🔥 important
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 40,
+  }}
+
+  showsVerticalScrollIndicator={false}
+  keyboardShouldPersistTaps="handled"
+  ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+/>
 
 </View>
 
-    </SafeAreaView>
+      </SafeAreaView>
+  </View>
+
   );
 }
 
@@ -348,6 +456,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginBottom: -5,
   },
+
+
+
+
+emptyAvatarWrap: {
+  width: 90,
+  height: 90,
+  borderRadius: 45,
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: 18,
+},
+
 
 
   
@@ -408,40 +529,171 @@ dashboardLabel: {
 
 
 
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    height: 38,
-    marginBottom: 12,
-  },
 
-  searchInput: {
-    flex: 1,
-    marginHorizontal: 6,
-    fontSize: 15,
-    fontWeight: "500",
-  },
 
-  sortRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
 
-  sortChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    marginRight: 8,
-    borderWidth: 1,
-  },
 
-  sortLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
+
+searchRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 6,
+  marginBottom: 12,
+},
+
+searchPill: {
+  flex: 1,
+  height: 44,
+  borderRadius: 999,
+  overflow: "hidden",
+  paddingHorizontal: 14,
+  flexDirection: "row",
+  alignItems: "center",
+
+ borderWidth: 1,
+  borderColor: "rgba(255, 255, 255, 1)",
+
+  shadowColor: "#fff",
+  shadowOpacity: 0.25,
+  shadowRadius: 6,
+  shadowOffset: { width: 0, height: -1 },
+
+  elevation: 2,
+},
+
+searchPillTint: {
+  ...StyleSheet.absoluteFillObject,
+  backgroundColor: "rgba(255,255,255,0.58)",
+},
+
+
+searchInputNew: {
+  flex: 1,
+  fontSize: 16,
+  fontWeight: "500",
+},
+
+quickAddBtn: {
+  position: "absolute",
+  right: 16,
+  top: Platform.OS === "ios" ? 58 : 50,
+
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+
+  overflow: "hidden", // 🔥 THIS FIXES IT
+
+  alignItems: "center",
+  justifyContent: "center",
+
+  backgroundColor: HELP_BLUE,
+
+  shadowColor: "#00A6FF",
+  shadowRadius: 10,
+  shadowOpacity: 0.45,
+  shadowOffset: { width: 0, height: 5 },
+
+  elevation: 6,
+},
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+
+searchInnerLight: {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  height: "50%",
+  backgroundColor: "rgba(255,255,255,0.30)",
+  borderTopLeftRadius: 999,
+  borderTopRightRadius: 999,
+},
+
+
+
+emptyWrap: {
+  flex: 1,
+  alignItems: "center",
+  justifyContent: "flex-start",
+  paddingHorizontal: 32,
+  marginTop: 100,
+},
+
+emptyIcon: {
+  width: 90,
+  height: 90,
+  borderRadius: 45,
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: 18,
+},
+
+emptyTitle: {
+  fontSize: 20,
+  fontWeight: "700",
+  marginBottom: 6,
+},
+
+emptySubtitle: {
+  fontSize: 14,
+  textAlign: "center",
+  marginBottom: 20,
+},
+
+emptyButton: {
+  backgroundColor: "#00A6FF",
+  paddingHorizontal: 18,
+  paddingVertical: 10,
+  borderRadius: 20,
+},
+
+emptyButtonText: {
+  color: "#fff",
+  fontWeight: "700",
+  fontSize: 14,
+},
+
+
+
+
+
+
+glassAddBtn: {
+  height: 36,
+  width: 36,
+  borderRadius: 18,
+  overflow: "hidden",
+
+  alignItems: "center",
+  justifyContent: "center",
+
+  borderWidth: StyleSheet.hairlineWidth,
+  borderColor: "rgba(0,0,0,0.06)",
+
+  shadowColor: "#000",
+  shadowOpacity: 0.08,
+  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 5 },
+  elevation: 2,
+},
+
+
+
+
+
+
 
   clientRow: {
     flexDirection: "row",
@@ -525,4 +777,4 @@ dashboardLabel: {
     fontSize: 11,
     fontWeight: "500",
   },
-});
+}); 

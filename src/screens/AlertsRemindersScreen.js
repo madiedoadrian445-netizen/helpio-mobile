@@ -10,185 +10,197 @@ import {
   Platform,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { LinearGradient } from "expo-linear-gradient";
+import { LinearGradient } from "expo-linear-gradient"; 
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../ThemeContext";
+import { useEffect } from "react";
+import useAuthStore from "../store/auth";
+import { useCallback } from "react";
+
 
 const HELP_BLUE = "#00A6FF";
 
-const MOCK_ALERTS = [
-  // 🔴 CRITICAL / URGENT
-  {
-    id: "a1",
-    title: "Payment failed",
-    message: "Invoice #1024 for Miami Jetski Shop could not be charged.",
-    time: "Just now",
-    category: "payment",
-    severity: "critical",
-    type: "invoice_payment_failed",
-  },
-  {
-    id: "a2",
-    title: "Subscription payment failed",
-    message: "Bi-Weekly Wash & Wax for John Martinez is past due.",
-    time: "12 min ago",
-    category: "subscription",
-    severity: "critical",
-    type: "subscription_failed",
-  },
-  {
-    id: "a3",
-    title: "Chargeback opened",
-    message: "Client disputed a $380 payment. Respond by Dec 12.",
-    time: "1h ago",
-    category: "chargeback",
-    severity: "critical",
-    type: "chargeback_opened",
-  },
 
-  // 🟡 WARNING / ACTION NEEDED
-  {
-    id: "a4",
-    title: "Invoice overdue",
-    message: "Invoice #1017 for AFM Showroom is 7 days overdue.",
-    time: "3h ago",
-    category: "invoice",
-    severity: "warning",
-    type: "invoice_overdue",
-  },
-  {
-    id: "a5",
-    title: "Card expiring soon",
-    message: "Saved card for Redline Underground Cars expires this month.",
-    time: "Today",
-    category: "payment",
-    severity: "warning",
-    type: "card_expiring",
-  },
-  {
-    id: "a6",
-    title: "Upcoming subscription renewal",
-    message: "3 subscriptions renew tomorrow. Review upcoming charges.",
-    time: "Today",
-    category: "subscription",
-    severity: "warning",
-    type: "upcoming_subscription",
-  },
 
-  // 🟢 POSITIVE / SUCCESS
-  {
-    id: "a7",
-    title: "Payout sent",
-    message: "Helpio Pay deposited $4,320.45 to your bank account.",
-    time: "Yesterday",
-    category: "payout",
-    severity: "success",
-    type: "payout_sent",
-  },
-  {
-    id: "a8",
-    title: "Invoice paid",
-    message: "Invoice #1031 for Veloz Contractors was paid in full.",
-    time: "Yesterday",
-    category: "invoice",
-    severity: "success",
-    type: "invoice_paid",
-  },
-  {
-    id: "a9",
-    title: "New subscription started",
-    message: "Monthly Detailing for AFM Showroom is now active.",
-    time: "Yesterday",
-    category: "subscription",
-    severity: "success",
-    type: "subscription_new",
-  },
 
-  // 🔵 INFO / SYSTEM
-  {
-    id: "a10",
-    title: "Reminder sent to client",
-    message: "Invoice #1030 reminder was emailed to Donna Jones.",
-    time: "2 days ago",
-    category: "invoice",
-    severity: "info",
-    type: "invoice_reminder_sent",
-  },
-  {
-    id: "a11",
-    title: "New client added",
-    message: "You added Miami Jetski Shop to your client list.",
-    time: "2 days ago",
-    category: "client",
-    severity: "info",
-    type: "client_added",
-  },
-  {
-    id: "a12",
-    title: "Tax estimate updated",
-    message: "Your estimated tax summary has been updated.",
-    time: "3 days ago",
-    category: "system",
-    severity: "info",
-    type: "tax_update",
-  },
-];
+const formatCurrency = (value) => {
+  const num = Number(value);
+
+  if (value === null || value === undefined || isNaN(num)) {
+    return "$0.00";
+  }
+
+  // 🔥 Normalize cents → dollars automatically
+  const normalized = num > 10000 ? num / 100 : num;
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(normalized);
+};
+
+
+
+
+const getStyleForCategory = (category) => {
+  switch (category) {
+    case "payment":
+      return {
+        barColor: "#22c55e",
+        iconBg: "rgba(34,197,94,0.12)",
+        iconColor: "#16a34a",
+        pillBg: "rgba(34,197,94,0.12)",
+        pillColor: "#16a34a",
+      };
+
+    case "invoice":
+      return {
+        barColor: "#3b82f6",
+        iconBg: "rgba(59,130,246,0.12)",
+        iconColor: "#2563eb",
+        pillBg: "rgba(59,130,246,0.12)",
+        pillColor: "#2563eb",
+      };
+
+    case "payout":
+      return {
+        barColor: "#ef4444",
+        iconBg: "rgba(239,68,68,0.12)",
+        iconColor: "#dc2626",
+        pillBg: "rgba(239,68,68,0.12)",
+        pillColor: "#dc2626",
+      };
+
+    case "client":
+      return {
+        barColor: "#8b5cf6",
+        iconBg: "rgba(139,92,246,0.12)",
+        iconColor: "#7c3aed",
+        pillBg: "rgba(139,92,246,0.12)",
+        pillColor: "#7c3aed",
+      };
+
+    default:
+      return {
+        barColor: HELP_BLUE,
+        iconBg: "rgba(0,166,255,0.12)",
+        iconColor: "#0284c7",
+        pillBg: "rgba(0,166,255,0.12)",
+        pillColor: "#0284c7",
+      };
+  }
+};
+
+
+const API_BASE_URL = "https://helpio-backend.onrender.com";
 
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "payment", label: "Payments" },
-  { key: "subscription", label: "Subscriptions" },
   { key: "invoice", label: "Invoices" },
   { key: "payout", label: "Payouts" },
+  { key: "client", label: "Clients" },
 ];
 
 export default function AlertsRemindersScreen({ navigation }) {
+  const token = useAuthStore((state) => state.token);
+const isHydrated = useAuthStore((state) => state.isHydrated);
+  
   const { darkMode, theme } = useTheme();
+
+
   const isLight = !darkMode;
   const insets = useSafeAreaInsets();
+const [alerts, setAlerts] = useState([]);
+
 
   const [activeFilter, setActiveFilter] = useState("all");
 
-  const filteredAlerts = useMemo(() => {
-    if (activeFilter === "all") return MOCK_ALERTS;
-    return MOCK_ALERTS.filter((a) => a.category === activeFilter);
-  }, [activeFilter]);
 
-  const pendingCount = useMemo(
-    () =>
-      MOCK_ALERTS.filter((a) =>
-        ["critical", "warning"].includes(a.severity)
-      ).length,
-    []
+const allowedCategories = ["payment", "invoice", "payout", "client"];
+
+const filteredAlerts = useMemo(() => {
+  let base = alerts.filter((a) =>
+    allowedCategories.includes(a.category)
   );
-  const successCount = useMemo(
-    () => MOCK_ALERTS.filter((a) => a.severity === "success").length,
-    []
-  );
+
+  if (activeFilter === "all") return base;
+
+  return base.filter((a) => a.category === activeFilter);
+}, [alerts, activeFilter]);
+
+
+
+
+
+ const fetchAlerts = useCallback(async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/activity`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await res.json();
+
+    setAlerts(Array.isArray(data.activity) ? data.activity : []);
+  } catch (err) {
+    console.log("Failed to fetch alerts", err);
+  }
+}, [token]);
+
+
+
+useEffect(() => {
+  if (!isHydrated || !token) return;
+
+  fetchAlerts();
+}, [isHydrated, token, fetchAlerts]);
+
+
+
+useEffect(() => {
+  if (!isHydrated || !token) return;
+
+  const interval = setInterval(fetchAlerts, 15000);
+
+  return () => clearInterval(interval);
+}, [isHydrated, token, fetchAlerts]);
+
+
+const paymentsCount = alerts.filter(
+  (a) => a.category === "payment"
+).length;
+
+const invoicesCount = alerts.filter(
+  (a) => a.category === "invoice"
+).length;
+
+const payoutsCount = alerts.filter(
+  (a) => a.category === "payout"
+).length;
+
+const clientsCount = alerts.filter(
+  (a) => a.category === "client"
+).length;
+
 
   const handleAlertPress = (alert) => {
-    // 🔗 You can customize these later to deep-link into detail screens
-    if (alert.category === "subscription") {
-      navigation.navigate("SubscriptionPlans");
-      return;
-    }
-    if (alert.category === "invoice") {
-      // Example: open your invoices dashboard
+  if (alert.category === "invoice") {
     navigation.navigate("MainTabs", {
-  screen: "Invoices",
-});
+      screen: "Invoices",
+    });
+    return;
+  }
 
- // change if your route name is different
-      return;
-    }
-    if (alert.category === "payment" || alert.category === "payout") {
-      // Example: open Helpio Pay / payments area later
-      // navigation.navigate("HelpioPayScreen");
-      return;
-    }
-    // For now, no-op for others
-  };
+  if (alert.category === "payment" || alert.category === "payout") {
+    // future: Helpio Pay
+    return;
+  }
+};
+
+
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
@@ -209,7 +221,7 @@ export default function AlertsRemindersScreen({ navigation }) {
       <View
         style={[
           styles.headerWrap,
-          { paddingTop: insets.top + (Platform.OS === "ios" ? 2 : 10) },
+          { paddingTop: insets.top - 8 },
         ]}
       >
         <TouchableOpacity
@@ -232,13 +244,13 @@ export default function AlertsRemindersScreen({ navigation }) {
 
         <View style={styles.headerCenter}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>
-            Alerts & Reminders
+           BusinessPlace Activity
           </Text>
           <Text
             style={[styles.headerSubtitle, { color: theme.subtleText }]}
             numberOfLines={1}
           >
-            Payments • Subscriptions • Invoices • Payouts
+    Payments • Invoices • Payouts • Clients
           </Text>
         </View>
 
@@ -277,61 +289,47 @@ export default function AlertsRemindersScreen({ navigation }) {
           <View style={styles.summaryTopRow}>
             <View>
               <Text style={[styles.summaryLabel, { color: theme.subtleText }]}>
-                Pending actions
+               Total Activity
               </Text>
               <Text style={[styles.summaryValue, { color: theme.text }]}>
-                {pendingCount}
+                {alerts.length}
               </Text>
             </View>
 
-            <View style={styles.summaryBadges}>
-              <View style={styles.summaryBadge}>
-                <View style={[styles.badgeDot, { backgroundColor: "#f97316" }]} />
-                <Text style={styles.summaryBadgeText}>Due soon</Text>
-              </View>
-              <View style={styles.summaryBadge}>
-                <View style={[styles.badgeDot, { backgroundColor: "#22c55e" }]} />
-                <Text style={styles.summaryBadgeText}>
-                  {successCount} successful
-                </Text>
-              </View>
-            </View>
+         <View style={styles.summaryBadges}>
+  <View style={styles.summaryBadge}>
+    <View style={[styles.badgeDot, { backgroundColor: "#f97316" }]} />
+    <Text style={styles.summaryBadgeText}>
+      Payments: {paymentsCount}
+    </Text>
+  </View>
+
+  <View style={styles.summaryBadge}>
+    <View style={[styles.badgeDot, { backgroundColor: "#22c55e" }]} />
+    <Text style={styles.summaryBadgeText}>
+      Payouts: {payoutsCount}
+    </Text>
+  </View>
+
+  <View style={styles.summaryBadge}>
+    <View style={[styles.badgeDot, { backgroundColor: "#6366f1" }]} />
+    <Text style={styles.summaryBadgeText}>
+      Clients: {clientsCount}
+    </Text>
+  </View>
+</View>
+
+
           </View>
 
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryGridItem}>
-              <Text
-                style={[styles.summaryGridLabel, { color: theme.subtleText }]}
-              >
-                Overdue invoices
-              </Text>
-              <Text
-                style={[styles.summaryGridValue, { color: "#f97316" }]}
-              >
-                2
-              </Text>
-            </View>
-            <View style={styles.summaryGridItem}>
-              <Text
-                style={[styles.summaryGridLabel, { color: theme.subtleText }]}
-              >
-                Failed payments
-              </Text>
-              <Text style={[styles.summaryGridValue, { color: "#ef4444" }]}>
-                1
-              </Text>
-            </View>
-            <View style={styles.summaryGridItem}>
-              <Text
-                style={[styles.summaryGridLabel, { color: theme.subtleText }]}
-              >
-                Renewals tomorrow
-              </Text>
-              <Text style={[styles.summaryGridValue, { color: HELP_BLUE }]}>
-                3
-              </Text>
-            </View>
-          </View>
+       
+
+
+
+
+
+
+          
         </View>
 
         {/* Filter pills */}
@@ -382,9 +380,25 @@ export default function AlertsRemindersScreen({ navigation }) {
             },
           ]}
         >
-          {filteredAlerts.map((alert, idx) => {
+       {filteredAlerts.length === 0 ? (
+  <View style={{ paddingVertical: 40, alignItems: "center" }}>
+    <Ionicons
+      name="notifications-off-outline"
+      size={40}
+      color={theme.subtleText}
+    />
+    <Text style={{ marginTop: 10, color: theme.subtleText }}>
+      No activity yet
+    </Text>
+  </View>
+) : (
+  filteredAlerts.map((alert, idx) => {
+
             const isLast = idx === filteredAlerts.length - 1;
-            const severityStyle = getSeverityStyle(alert.severity);
+        
+        const severityStyle = getStyleForCategory(alert.category);
+
+
             const categoryLabel = getCategoryLabel(alert.category);
             const iconName = getIconForAlert(alert);
 
@@ -428,15 +442,33 @@ export default function AlertsRemindersScreen({ navigation }) {
                     >
                       {alert.title}
                     </Text>
-                    <Text
-                      style={[
-                        styles.alertMessage,
-                        { color: theme.subtleText },
-                      ]}
-                      numberOfLines={2}
-                    >
-                      {alert.message}
-                    </Text>
+               
+               
+             <Text
+  style={[
+    styles.alertMessage,
+    { color: theme.subtleText },
+  ]}
+  numberOfLines={2}
+>
+
+
+  
+{alert.category === "payment" ? (
+  <>
+    Transaction{" "}
+    <Text style={{ fontWeight: "700", color: theme.text }}>
+      • {formatCurrency(alert.amount)}
+    </Text>
+  </>
+) : (
+  alert.message
+)}
+
+
+
+</Text>
+
 
                     <View style={styles.alertMetaRow}>
                       <Text
@@ -469,7 +501,10 @@ export default function AlertsRemindersScreen({ navigation }) {
                 {!isLast && <View style={styles.rowDivider} />}
               </View>
             );
-          })}
+        }))
+}
+
+
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -478,83 +513,46 @@ export default function AlertsRemindersScreen({ navigation }) {
 
 /* ---------- Helpers ---------- */
 
-const getSeverityStyle = (severity) => {
-  switch (severity) {
-    case "critical":
-      return {
-        barColor: "#ef4444",
-        iconBg: "rgba(248,113,113,0.12)",
-        iconColor: "#dc2626",
-        pillBg: "rgba(248,113,113,0.12)",
-        pillColor: "#b91c1c",
-      };
-    case "warning":
-      return {
-        barColor: "#f97316",
-        iconBg: "rgba(251,146,60,0.12)",
-        iconColor: "#ea580c",
-        pillBg: "rgba(251,146,60,0.12)",
-        pillColor: "#c2410c",
-      };
-    case "success":
-      return {
-        barColor: "#22c55e",
-        iconBg: "rgba(34,197,94,0.12)",
-        iconColor: "#15803d",
-        pillBg: "rgba(34,197,94,0.12)",
-        pillColor: "#15803d",
-      };
-    case "info":
-    default:
-      return {
-        barColor: HELP_BLUE,
-        iconBg: "rgba(59,130,246,0.12)",
-        iconColor: "#1d4ed8",
-        pillBg: "rgba(59,130,246,0.12)",
-        pillColor: "#1d4ed8",
-      };
-  }
-};
 
 const getCategoryLabel = (category) => {
   switch (category) {
+
+
     case "payment":
       return "Payment";
-    case "subscription":
-      return "Subscription";
+
+      
     case "invoice":
       return "Invoice";
+
+
     case "payout":
       return "Payout";
-    case "chargeback":
-      return "Chargeback";
+
+
     case "client":
       return "Client";
-    case "system":
-      return "System";
+
+
     default:
       return "Other";
   }
 };
 
 const getIconForAlert = (alert) => {
-  switch (alert.category) {
-    case "payment":
-      return "card-outline";
-    case "subscription":
-      return "repeat-outline";
-    case "invoice":
-      return "document-text-outline";
-    case "payout":
-      return "cash-outline";
-    case "chargeback":
-      return "alert-circle-outline";
-    case "client":
-      return "person-outline";
-    case "system":
-    default:
-      return "information-circle-outline";
-  }
+ switch (alert.category) {
+  case "payment":
+    return "card-outline";
+  case "invoice":
+    return "document-text-outline";
+  case "payout":
+    return "cash-outline";
+  case "client":
+    return "person-outline";
+  default:
+    return "information-circle-outline";
+}
+
 };
 
 /* ---------- Styles ---------- */

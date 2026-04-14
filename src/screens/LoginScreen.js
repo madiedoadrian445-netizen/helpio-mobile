@@ -138,15 +138,18 @@ const handlePostLoginRedirect = () => {
   try {
     const data = await loginApi(em, pw);
 
-    if (!data?.token || !data?.user) {
+ if (!data?.token || !data?.refreshToken || !data?.user) {
       throw new Error("Invalid login response");
     }
 
-    let provider = null;
-    try {
-      const res = await api.get("/api/providers/me");
-      provider = res.data?.provider || null;
-    } catch {}
+  let provider = null;
+
+if (data.user?.role === "provider") {
+  try {
+    const res = await api.get("/api/providers/me");
+    provider = res.data?.provider || null;
+  } catch {}
+}
 
     // ✅ Set auth
     await useAuthStore.getState().setAuth({
@@ -188,10 +191,13 @@ navigationRef.dispatch(
     setLoading(false);
     setBioLoading(false);
 
-    Alert.alert(
-      "Login Failed",
-      err?.response?.data?.message || err.message || "Invalid credentials"
-    );
+  const message =
+  err?.response?.data?.message ||
+  (err?.response?.status === 401
+    ? "Invalid email or password"
+    : "Something went wrong. Please try again.");
+
+Alert.alert("Login Failed", message);
   }
 };
 

@@ -8,7 +8,7 @@ export async function login(email, password) {
   };
 
   const { data } = await api.post("/api/auth/login", body);
-  return data; // { token, user, providerId }
+return data; // { token, refreshToken, user }
 }
 
 /* ---------------- REGISTER CUSTOMER ---------------- */
@@ -20,7 +20,7 @@ export async function register({ name, email, password }) {
   };
 
   const { data } = await api.post("/api/auth/register", body);
-  return data; // { token, user }
+ return data; // { token, refreshToken, user }
 }
 
 /* ---------------- REGISTER PROVIDER (TEMP FLOW) ---------------- */
@@ -40,5 +40,5 @@ export async function registerProvider({
   };
 
   const { data } = await api.post("/api/auth/register-provider", body);
-  return data; // { token, user{ providerId } }
+return data; // { token, refreshToken, user }
 }

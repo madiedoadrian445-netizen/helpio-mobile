@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons"; 
 import { api } from "../config/api";
 import { Audio } from "expo-av";
 import useAuthStore from "../store/auth";
@@ -24,14 +24,32 @@ const HELP_IO_PURPLE = "#7B61FF";
 const HELP_IO_BLACK = "#000000";
 
 export default function HelpioPayScreen({ navigation }) {
- const provider = useAuthStore((state) => state.provider);
+const user = useAuthStore((state) => state.user);
+const providerId = user?.providerId;
+
   const isHydrated = useAuthStore((state) => state.isHydrated);
+
+// 🔥 ADD THESE LOGS RIGHT HERE
+console.log("🔥 USER:", user);
+console.log("🔥 PROVIDER ID:", providerId);
+console.log("🔥 HYDRATED:", isHydrated);
+
+
+const [blockRetry, setBlockRetry] = useState(false);
   const [cents, setCents] = useState("0");
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
-
   const [phase, setPhase] = useState("idle"); // idle | tapping | processing
   const nfcPulse = useRef(new Animated.Value(1)).current;
+
+
+  const processingRef = useRef(false);
+
+
+  const paymentSessionRef = useRef({
+  idempotencyKey: null,
+});
+
 
   const tapAcceptSound = useRef(null);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -62,14 +80,18 @@ const scale = translateY.interpolate({
 const contentOpacity = useRef(new Animated.Value(1)).current;
 const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
-  if (!isHydrated) {
+const authReady = useAuthStore((state) => state.authReady);
+
+if (!isHydrated || !providerId || !authReady)
+  
+  
+  {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
       <ActivityIndicator />
     </View>
   );
 }
-
 
 
   // Format cents → "42.00"
@@ -198,22 +220,47 @@ const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 };
 
 
-  /* -------------------------------------------
-   * SIMULATED PAYMENT (Expo-safe)
-   ------------------------------------------- */
+
+
+
+
  /* -------------------------------------------
    * REAL STRIPE TERMINAL PAYMENT
 ------------------------------------------- */
 const handlePayPress = async () => {
-  if (isProcessing) return;
 
-  const numericAmount = parseFloat(formattedAmount);
-  if (!numericAmount || numericAmount <= 0) {
-    setErrorMessage("Enter an amount above $0.00.");
-    return;
-  }
+console.log("🔥 BUTTON PRESSED");
+console.log("🔥 PAY PRESS PROVIDER ID:", providerId);
 
-  setIsProcessing(true);
+
+if (processingRef.current || isProcessing) return;
+
+
+
+
+const amountCents = parseInt(cents, 10);
+
+if (!amountCents || amountCents <= 0) {
+  setErrorMessage("Enter an amount above $0.00.");
+  console.log("❌ Invalid amount:", cents);
+  return;
+}
+
+
+// ✅ ONLY LOCK AFTER VALIDATION PASSES
+processingRef.current = true;
+setIsProcessing(true);
+
+
+if (!paymentSessionRef.current.idempotencyKey) {
+  paymentSessionRef.current.idempotencyKey =
+    `${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
+}
+
+
+setErrorMessage(null);
+
+
   setErrorMessage(null);
 
   try {
@@ -231,7 +278,7 @@ const handlePayPress = async () => {
     await new Promise((r) => setTimeout(r, 1150));
 
     console.log("🚀 FIRING STRIPE TERMINAL PAYMENT", {
-      amount: numericAmount,
+amount: amountCents,
     });
 
     console.log("🌍 API BASE URL:", api.defaults.baseURL);
@@ -240,7 +287,7 @@ const handlePayPress = async () => {
        1️⃣ Create terminal session
     ------------------------------ */
    const sessionRes = await api.post("/api/terminal-payments/create-session", {
-      amount: numericAmount,
+  amount: amountCents,
       currency: "usd",
     });
 
@@ -261,10 +308,25 @@ const handlePayPress = async () => {
        3️⃣ Capture payment
     ------------------------------ */
   
-   await api.post("/api/terminal-payments/capture", {
+  const captureRes = await api.post("/api/terminal-payments/capture", {
   sessionId,
-  idempotencyKey: `${Date.now()}_${Math.floor(Math.random() * 1000000)}`
+ idempotencyKey: paymentSessionRef.current.idempotencyKey
 });
+
+const payment = captureRes.data.payment;
+
+
+console.log("✅ CAPTURE PAYMENT:", payment);
+
+
+
+const { setAnalyticsCache } = useAuthStore.getState();
+
+setAnalyticsCache((prev) => ({
+  ...prev,
+  revenueAllTime: (prev.revenueAllTime || 0) + amountCents / 100,
+  totalTransactions: (prev.totalTransactions || 0) + 1,
+}));
 
 
     console.log("✅ Payment captured");
@@ -279,18 +341,46 @@ navigation.navigate("HelpioReceipt", {
   amount: formattedAmount,
   brand: "Visa",
   last4: "4242",
+  transactionId: payment._id, // 🔥 THIS IS THE KEY
 });
 
 
-
-  } catch (err) {
+} catch (err) {
   console.log("Stripe terminal payment error:", err?.response?.data || err.message);
-    setErrorMessage("Payment failed.");
-  }
+const isTimeout =
+  err?.message?.toLowerCase().includes("timeout") ||
+  !err?.response;
 
+if (isTimeout) {
+  setErrorMessage(
+    "Payment status unknown. Please check transactions before retrying."
+  );
+
+ setBlockRetry(true);
+
+} else {
+  const backendMessage =
+    err?.response?.data?.message || "Payment failed.";
+  setErrorMessage(backendMessage);
+}
+
+
+
+} finally {
   setPhase("idle");
+  processingRef.current = false;
   setIsProcessing(false);
+
+paymentSessionRef.current.idempotencyKey = null;
+
+
+}
+
+
+
 };
+
+
   const keypadRows = [
   [
     { n: "1", l: "" },
@@ -477,7 +567,7 @@ navigation.navigate("HelpioReceipt", {
       <TouchableOpacity
         style={[styles.primaryButton, isProcessing && { opacity: 0.7 }]}
         onPress={handlePayPress}
-        disabled={isProcessing}
+       disabled={isProcessing || blockRetry}
       >
         {isProcessing ? (
           <ActivityIndicator color="#fff" />
@@ -855,5 +945,3 @@ cardImage: {
     justifyContent: "center",
   },
 });
-
-

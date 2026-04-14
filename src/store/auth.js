@@ -3,10 +3,12 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../config/api";
 import { injectStore } from "../config/api";
+import * as SecureStore from "expo-secure-store";
+
 
 const TOKEN_KEY = "authToken"; // ⭐ MUST MATCH api.js
 const REFRESH_TOKEN_KEY = "refreshToken";
-
+const SECURE_REFRESH_KEY = "secure_refresh_token";
 
 
 const useAuthStore = create((set) => ({
@@ -16,6 +18,27 @@ const useAuthStore = create((set) => ({
   refreshToken: null,
   isHydrated: false,
    isGuest: false,
+   authReady: false,
+
+
+analyticsCache: {
+  revenueAllTime: 0,
+  revenue30Days: 0,
+  totalInvoices: 0,
+  totalTransactions: 0,
+  totalClients: 0,
+},
+
+
+setAnalyticsCache: (data) =>
+  set((state) => ({
+    analyticsCache: {
+      ...state.analyticsCache,
+      ...data,
+    },
+  })),
+
+
 
    continueAsGuest: () => {
   set({
@@ -25,6 +48,7 @@ const useAuthStore = create((set) => ({
     refreshToken: null,
     isGuest: true,
     isHydrated: true,
+    authReady: true,
   });
 },
   
@@ -34,13 +58,12 @@ const useAuthStore = create((set) => ({
   const finalUser = user ?? current.user;
   const finalProvider = provider ?? current.provider;
 
-  if (token) {
-    await AsyncStorage.setItem(TOKEN_KEY, token);
-  }
+// 🔥 ACCESS TOKEN → MEMORY ONLY (do NOT store)
 
-  if (refreshToken) {
-    await AsyncStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-  }
+// 🔒 REFRESH TOKEN → SecureStore
+if (refreshToken) {
+  await SecureStore.setItemAsync(SECURE_REFRESH_KEY, refreshToken);
+}
 
   if (finalUser) {
     await AsyncStorage.setItem("user", JSON.stringify(finalUser));
@@ -57,14 +80,29 @@ const useAuthStore = create((set) => ({
   refreshToken: refreshToken || current.refreshToken,
   isGuest: false, // 🔥 IMPORTANT
   isHydrated: true,
+  authReady: true,
 });
 },
 
 hydrate: async () => {
   console.log("🌐 HYDRATE START");
 
-  const token = await AsyncStorage.getItem(TOKEN_KEY);
-  const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+ // 🔒 Load refresh token from SecureStore
+let refreshToken = await SecureStore.getItemAsync(SECURE_REFRESH_KEY);
+
+// 🔁 MIGRATION (IMPORTANT — keeps existing users logged in)
+if (!refreshToken) {
+  const oldRefresh = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
+
+  if (oldRefresh) {
+    console.log("🔄 Migrating refresh token to SecureStore");
+
+    await SecureStore.setItemAsync(SECURE_REFRESH_KEY, oldRefresh);
+    await AsyncStorage.removeItem(REFRESH_TOKEN_KEY);
+
+    refreshToken = oldRefresh;
+  }
+}
 
   const storedUser = await AsyncStorage.getItem("user");
   const storedProvider = await AsyncStorage.getItem("provider");
@@ -72,58 +110,111 @@ hydrate: async () => {
   const parsedUser = storedUser ? JSON.parse(storedUser) : null;
   const parsedProvider = storedProvider ? JSON.parse(storedProvider) : null;
 
-  console.log("🧪 TOKEN:", token);
 
 
-  if (!token) {
-  set({
-    token: null,
-    refreshToken: null,
-    user: null,
-    provider: null,
-    isGuest: false,
-    isHydrated: true,
-  });
+
+if (!refreshToken) {
+set({
+  token: null,
+  refreshToken: null,
+  user: null,
+  provider: null,
+  isGuest: false,
+  isHydrated: true,
+  authReady: true,
+});
   return;
 }
 
 
   // 🔥 INSTANT HYDRATION (NO WAIT)
-  set({
-    token,
-    refreshToken,
-    user: parsedUser,
-    provider: parsedProvider,
-    isHydrated: true,
-  });
+set({
+  token: null, // 🔥 CRITICAL FIX
+  refreshToken,
+  user: parsedUser,
+  provider: parsedProvider,
+  isHydrated: true,
+  authReady: true,
+});
 
   // 🔥 BACKGROUND REFRESH (NON-BLOCKING)
   try {
-    const res = await api.get("/api/auth/me");
+  const res = await api.post("/api/auth/refresh", {
+  refreshToken,
+});
 
-    const data = res.data;
+const newToken = res.data.token;
+const newRefreshToken = res.data.refreshToken;
 
-    set({
-      user: data.user || parsedUser,
-      provider: data.provider || parsedProvider,
-    });
+// 🔒 update SecureStore
+if (newRefreshToken) {
+  await SecureStore.setItemAsync(
+    SECURE_REFRESH_KEY,
+    newRefreshToken
+  );
+}
+
+set({
+  token: newToken,
+  refreshToken: newRefreshToken || refreshToken,
+authReady: true,
+});
+
+
 
     console.log("✅ Background auth refresh success");
-  } catch (e) {
-    console.log("⚠️ Background auth refresh failed (ignored):", e);
+} catch (e) {
+  if (e.response?.status === 401) {
+    console.log("❌ Refresh token invalid — logging out");
+
+    await SecureStore.deleteItemAsync(SECURE_REFRESH_KEY);
+
+    set({
+      user: null,
+      provider: null,
+      token: null,
+      refreshToken: null,
+      isGuest: false,
+      isHydrated: true,
+      authReady: true,
+    });
+  } else {
+    console.log("⚠️ Temporary refresh failure — keeping session");
+
+    set({
+      token: null,
+      isHydrated: true,
+      authReady: true,
+    });
   }
+}
 },
 
 logout: async () => {
-  await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY]);
+  await SecureStore.deleteItemAsync(SECURE_REFRESH_KEY);
+
+  await AsyncStorage.multiRemove([
+    "user",
+    "provider",
+  ]);
 
   set({
     user: null,
     provider: null,
     token: null,
     refreshToken: null,
-    isGuest: false, // 🔥 REQUIRED
+    isGuest: false,
     isHydrated: true,
+    authReady: true,
+
+
+   analyticsCache: {
+  revenueAllTime: 0,
+  revenue30Days: 0,
+  totalInvoices: 0,
+  totalTransactions: 0,
+  totalClients: 0,
+},
   });
 },
 }));

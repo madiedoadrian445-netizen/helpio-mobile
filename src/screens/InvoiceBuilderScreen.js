@@ -12,7 +12,6 @@ import {
   Platform,
   Animated,
   KeyboardAvoidingView,
-  Modal,
   findNodeHandle,
   UIManager,   // <-- 🔥 NEW
 } from "react-native";
@@ -22,10 +21,8 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../src/ThemeContext";
 import { generateInvoicePDF } from "../utils/generateInvoicePDF";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { API_BASE_URL } from "../../src/config/api";
-
-
+import useAuthStore from "../store/auth";
+import { api } from "../config/api";
 
 
 
@@ -72,45 +69,93 @@ export default function InvoiceBuilderScreen({ navigation, route }) {
   const { darkMode } = useTheme();
   const tint = darkMode ? "dark" : "light";
 
+const formatPhoneNumber = (phone) => {
+  if (!phone) return "";
+
+  let cleaned = phone.replace(/\D/g, "");
+
+  if (cleaned.length === 11 && cleaned.startsWith("1")) {
+    cleaned = cleaned.slice(1);
+  }
+
+  if (cleaned.length !== 10) return phone;
+
+  const area = cleaned.slice(0, 3);
+  const middle = cleaned.slice(3, 6);
+  const last = cleaned.slice(6);
+
+  return `(${area}) ${middle}-${last}`;
+};
+
+
+const formatAddress = (address) => {
+  if (!address) return "";
+
+  // Remove extra spaces
+  let cleaned = address.trim().replace(/\s+/g, " ");
+
+  // Split into parts
+  const parts = cleaned.split(" ");
+
+  // Capitalize each word (except state codes later)
+  let formatted = parts
+    .map((word) => {
+      if (word.length === 2) return word.toUpperCase(); // state codes like FL
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+
+  // Add commas before city/state (basic heuristic)
+  formatted = formatted
+    .replace(/(\d{5})$/, (zip) => zip) // keep ZIP intact
+    .replace(/(\b[A-Za-z]+\b) (\b[A-Z]{2}\b)/, "$1, $2");
+
+  return formatted;
+};
+
+
   const scrollRef = useRef(null);
   const inputRefs = useRef({});
-
+const token = useAuthStore((state) => state.token);
   // ------------------------------------------------------
   // ⭐ REAL CRM CLIENT FETCH — paste this block here
   // ------------------------------------------------------
   const [clients, setClients] = useState([]);
   const [clientsLoading, setClientsLoading] = useState(false);
+const [searchQuery, setSearchQuery] = useState("");
+const [provider, setProvider] = useState(null);
 
-  const loadClients = async () => {
+const filteredClients = useMemo(() => {
+  if (!searchQuery.trim()) return clients;
+
+  const q = searchQuery.toLowerCase();
+
+  return clients.filter((c) =>
+    (c.name || "").toLowerCase().includes(q) ||
+    (c.email || "").toLowerCase().includes(q) ||
+    (c.phone || "").toLowerCase().includes(q)
+  );
+}, [clients, searchQuery]);
+
+const loadClients = async () => {
   try {
     setClientsLoading(true);
 
-    // ⭐ FULL TOKEN FALLBACK (same pattern as onShare)
-    const token =
-      (await AsyncStorage.getItem("token")) ||
-      (await AsyncStorage.getItem("userToken")) ||
-      (await AsyncStorage.getItem("authToken")) ||
-      (await AsyncStorage.getItem("providerToken"));
-
+    // ✅ Zustand ONLY
     if (!token) {
-      console.log("❌ No token found for client fetch");
+      console.log("❌ No auth token (Zustand)");
       return;
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/customers`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token.trim()}`,
-      },
-    });
+ const response = await api.get("/api/customers");
 
-    const data = await response.json();
-    console.log("🚀 CLIENTS API RESPONSE:", data);
 
-    if (data.success && Array.isArray(data.customers)) {
-      setClients(data.customers);
-    }
+  if (response.data?.success && Array.isArray(response.data.customers)) {
+  setClients(response.data.customers);
+}
+
+
+
   } catch (err) {
     console.log("Error loading clients:", err);
   } finally {
@@ -118,11 +163,12 @@ export default function InvoiceBuilderScreen({ navigation, route }) {
   }
 };
 
-
   // Load on mount
-  React.useEffect(() => {
+ React.useEffect(() => {
+  if (token) {
     loadClients();
-  }, []);
+  }
+}, [token]);
   
   // ------------------------------------------------------
 // ⭐ ALL INVOICE STATE — must appear BEFORE the auto-fill effect
@@ -131,13 +177,13 @@ export default function InvoiceBuilderScreen({ navigation, route }) {
 const scrollToBottom = () => {
   setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
 };
+const businessName = provider?.businessName || "";
+const businessLine2 = provider?.businessLine2 || "";
+const businessAddr1 = provider?.address || "";
+const businessAddr2 = provider?.cityState || "";
+const businessPhone = provider?.phone || "";
+const businessEmail = provider?.email || "";
 
-const [businessName, setBusinessName] = useState("ABC Lawn Care");
-const [businessLine2, setBusinessLine2] = useState("Mike Clay Landscaping");
-const [businessAddr1, setBusinessAddr1] = useState("123 Grass Ln");
-const [businessAddr2, setBusinessAddr2] = useState("Big City, New York");
-const [businessPhone, setBusinessPhone] = useState("(555) 555-5555");
-const [businessEmail, setBusinessEmail] = useState("abclawncare@example.com");
 
 const [clientName, setClientName] = useState("");
 const [clientAddr1, setClientAddr1] = useState("");
@@ -145,8 +191,22 @@ const [clientPhone, setClientPhone] = useState("");
 const [clientEmail, setClientEmail] = useState("");
 
 
-const [invoiceNo, setInvoiceNo] = useState("INVO001");
-const [invoiceDate, setInvoiceDate] = useState("Oct 30, 2025");
+
+
+
+
+const getCurrentDate = () => {
+  return new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const [invoiceDate, setInvoiceDate] = useState(getCurrentDate());
+
+
+
 const [invoiceDue, setInvoiceDue] = useState("On Receipt");
 const [status, setStatus] = useState("DUE");
 const [selectedClient, setSelectedClient] = useState(null);
@@ -177,7 +237,25 @@ const [paid, setPaid] = useState("");
   
   // ------------------------------------------------------
 
+const loadProvider = async () => {
+  try {
+    const res = await api.get("/api/providers/me");
 
+    if (res.data?.success) {
+      setProvider(res.data.provider);
+    }
+  } catch (err) {
+    console.log("Error loading provider:", err);
+  }
+};
+
+
+
+React.useEffect(() => {
+  if (token) {
+    loadProvider();
+  }
+}, [token]);
 
 
   // ✅ NEW FIXED scrollToInput()
@@ -207,30 +285,34 @@ const [paid, setPaid] = useState("");
   };
 
 // ⭐ FIX — Automatically load first client into invoice form
-React.useEffect(() => {
- if (clients.length > 0 && !selectedClient) {
-  const c = clients[0];
-
-  setSelectedClient(c);
-  setClientName(c.name || "");
-  setClientAddr1(c.address || "");
-  setClientPhone(c.phone || "");
-  setClientEmail(c.email || "");
-}
-
-}, [clients]);
 
 
-  const numbers = useMemo(() => {
-    const subtotal = items.reduce((sum, it) => {
-      const amt = (parseFloat(it.rate) || 0) * (parseFloat(it.qty) || 0);
-      return sum + amt;
-    }, 0);
-    const tax = subtotal * ((parseFloat(taxPct) || 0) / 100);
-    const total = subtotal + tax;
-    const paidNum = parseFloat(paid) || 0;
-    return { subtotal, tax, total, balance: Math.max(total - paidNum, 0) };
-  }, [items, taxPct, paid]);
+const toNumber = (val) => {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const numbers = useMemo(() => {
+  const subtotal = items.reduce((sum, it) => {
+    const amt = toNumber(it.rate) * toNumber(it.qty);
+    return sum + amt;
+  }, 0);
+
+  const taxRate = toNumber(taxPct) / 100;
+  const tax = subtotal * taxRate;
+
+  const total = subtotal + tax;
+
+  const paidNum = toNumber(paid);
+
+  return {
+    subtotal,
+    tax,
+    total,
+    balance: Math.max(total - paidNum, 0),
+  };
+}, [items, taxPct, paid]);
+
 
   const buildInvoicePayload = () => {
     const business = {
@@ -247,16 +329,23 @@ React.useEffect(() => {
       phone: clientPhone,
       email: clientEmail,
     };
+  
+  
     const invoiceMeta = {
-      number: invoiceNo,
-      date: invoiceDate,
-      due: invoiceDue,
-    };
-    const pdfItems = items.map((it) => ({
-      ...it,
-      desc: it.title,
-      description: it.note,
-    }));
+  date: invoiceDate,
+  due: invoiceDue,
+};
+
+
+   const safeItems = Array.isArray(items) ? items : [];
+
+const pdfItems = safeItems.map((it) => ({
+  ...it,
+  desc: it.title,
+  description: it.note,
+}));
+
+
     return {
       business,
       client,
@@ -270,56 +359,111 @@ React.useEffect(() => {
 
 
 const saveInvoiceToCRM = async () => {
-  const payload = buildInvoicePayload();
 
-  const token =
-    (await AsyncStorage.getItem("token")) ||
-    (await AsyncStorage.getItem("userToken")) ||
-    (await AsyncStorage.getItem("authToken")) ||
-    (await AsyncStorage.getItem("providerToken"));
+  if (isSaving) return; // ✅ prevent duplicate saves
 
-  if (!token) throw new Error("No auth token found");
-
- const customerId = selectedClient?._id;
-if (!customerId) throw new Error("No client selected");
-
-
-  const { items, numbers, invoiceMeta, taxPct, paid } = payload;
-
-  const response = await fetch(`${API_BASE_URL}/api/invoices`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token.trim()}`,
-    },
-    body: JSON.stringify({
-      customer: customerId,
-      items: items.map((i) => ({
-        description: i.desc || i.title || "",
-        qty: Number(i.qty) || 1,
-        rate: Number(i.rate) || 0,
-        amount: (Number(i.rate) || 0) * (Number(i.qty) || 0),
-      })),
-      subtotal: numbers.subtotal,
-      tax: numbers.tax,
-      taxPct: Number(taxPct) || 0,
-      total: numbers.total,
-      paid: Number(paid) || 0,
-      balance: numbers.balance,
-      invoiceNumber: invoiceMeta.number,
-      issueDate: invoiceMeta.date,
-      dueDate: invoiceMeta.due,
-      status: status || "DUE",
-      notes: "",
-    }),
-  });
-
-  if (!response.ok) {
-    const txt = await response.text();
-    throw new Error(txt);
+  // ✅ VALIDATION
+  if (!clientName.trim()) {
+    throw new Error("Client is required");
   }
 
-  return await response.json();
+  if (!selectedClient?._id) {
+    throw new Error("Please select a client");
+  }
+
+  if (items.length === 0) {
+    throw new Error("Add at least one item");
+  }
+
+  for (const item of items) {
+    if (!item.title.trim()) {
+      throw new Error("Each item must have a title");
+    }
+
+    if (Number(item.rate) < 0) {
+      throw new Error("Rate cannot be negative");
+    }
+
+    if (Number(item.qty) <= 0) {
+      throw new Error("Quantity must be greater than 0");
+    }
+  }
+
+  const payload = buildInvoicePayload();
+
+  if (!token) throw new Error("No auth token");
+
+  const customerId = selectedClient?._id;
+  if (!customerId) throw new Error("No client selected");
+
+
+
+
+
+
+const {
+  items: payloadItems,
+  numbers,
+  invoiceMeta,
+  taxPct,
+  paid,
+} = payload;
+
+
+
+
+const response = await api.post("/api/invoices", {
+  customer: customerId,
+
+  customerSnapshot: {
+    name: clientName,
+    address: clientAddr1,
+    phone: clientPhone,
+    email: clientEmail,
+  },
+
+  providerSnapshot: {
+    name: businessName,
+    address: businessAddr1,
+    phone: businessPhone,
+    email: businessEmail,
+  },
+
+items: payloadItems.map((i) => ({
+    name: i.title || "",
+    description: i.note || "",
+    qty: Number(i.qty) || 1,
+    rate: Number(i.rate) || 0,
+amount: toNumber(i.rate) * toNumber(i.qty),
+  })),
+
+  subtotal: numbers.subtotal,
+  tax: numbers.tax,
+  taxPct: Number(taxPct) || 0,
+  total: numbers.total,
+  paid: Number(paid) || 0,
+  balance: numbers.balance,
+
+ 
+  issueDate: invoiceMeta.date,
+  dueDate: invoiceMeta.due,
+  status: status || "DUE",
+
+  notes: "",
+});
+
+
+
+if (!response.data?.success) {
+  throw new Error("Failed to save invoice");
+}
+
+const saved = response.data.invoice;
+
+// optional state if you want to display it
+
+
+return saved;
 };
 
 
@@ -328,16 +472,32 @@ if (!customerId) throw new Error("No client selected");
   try {
     setIsSaving(true);
 
-    const payload = buildInvoicePayload();
-
-    // ✅ Auto-save if not already saved
+    // ✅ Always save first (ensures clean state)
     if (!isSaved) {
       await saveInvoiceToCRM();
       setIsSaved(true);
     }
 
-    // ✅ Now generate/share PDF
-    await generateInvoicePDF(payload);
+    // ✅ Build payload AFTER save
+    const payload = buildInvoicePayload();
+
+    // ✅ HARD SAFETY CHECK (prevents your crash)
+    if (!payload?.items || !Array.isArray(payload.items)) {
+      throw new Error("Invalid invoice data");
+    }
+
+    // ✅ Generate PDF
+  try {
+  await generateInvoicePDF(payload);
+} catch (pdfErr) {
+  console.error("PDF generation failed:", pdfErr);
+
+  Alert.alert(
+    "Invoice Saved",
+    "Invoice was saved, but PDF generation failed."
+  );
+}
+
 
   } catch (err) {
     console.error("share invoice error:", err);
@@ -356,21 +516,14 @@ if (!customerId) throw new Error("No client selected");
 };
 
 
-  const [clientPickerVisible, setClientPickerVisible] = useState(false);
-
  const handleSelectClient = (client) => {
-  setSelectedClient(client); // ✅ SINGLE SOURCE OF TRUTH
+  setSelectedClient(client);
 
   setClientName(client.name || "");
   setClientAddr1(client.address || "");
   setClientPhone(client.phone || "");
   setClientEmail(client.email || "");
-
-  setClientPickerVisible(false);
-
-  console.log("Selected client id:", client?._id);
 };
-
 
 
   const y = useRef(new Animated.Value(0)).current;
@@ -387,7 +540,11 @@ if (!customerId) throw new Error("No client selected");
       {/* BACKGROUND */}
       <View style={StyleSheet.absoluteFill}>
         <LinearGradient
-          colors={darkMode ? ["#050509", "#050509"] : ["#F7F7FA", "#F2F3F7"]}
+          colors={
+  darkMode
+    ? ["#050509", "#050509"]
+    : ["#ECEEF3", "#E6E9F0"]
+}
           style={StyleSheet.absoluteFill}
         />
         <BlurView intensity={40} tint={tint} style={StyleSheet.absoluteFill} />
@@ -425,7 +582,7 @@ if (!customerId) throw new Error("No client selected");
       {/* MAIN SCROLL */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
         style={{ flex: 1 }}
       >
         <Animated.ScrollView
@@ -493,14 +650,14 @@ if (!customerId) throw new Error("No client selected");
                 </Text>
                 {!!clientAddr1 && (
                   <Text style={[styles.meta, { color: darkMode ? "#D9DAE0" : "#444" }]}>
-                    {clientAddr1}
+                   {formatAddress(clientAddr1)}
                   </Text>
                 )}
-                {!!clientPhone && (
-                  <Text style={[styles.meta, { color: darkMode ? "#D9DAE0" : "#444" }]}>
-                    {clientPhone}
-                  </Text>
-                )}
+              {!!clientPhone && (
+  <Text style={[styles.meta, { color: darkMode ? "#D9DAE0" : "#444" }]}>
+    {formatPhoneNumber(clientPhone)}
+  </Text>
+)}
                 {!!clientEmail && (
                   <Text style={[styles.meta, { color: darkMode ? "#D9DAE0" : "#444" }]}>
                     {clientEmail}
@@ -522,11 +679,16 @@ if (!customerId) throw new Error("No client selected");
             )}
 
             <TouchableOpacity
-              onPress={() => setClientPickerVisible(true)}
+            onPress={() =>
+  navigation.navigate("ClientsScreen", {
+    selectMode: true,
+    onSelect: (client) => handleSelectClient(client),
+  })
+}
               style={styles.changeClientBtn}
             >
               <Text style={[styles.changeClientTxt, { color: HELP_BLUE }]}>
-                {clientName ? "Change Client" : "Add Client"}
+                {clientName ? "Change or Add Client" : "Add Client"}
               </Text>
             </TouchableOpacity>
           </GlassCard>
@@ -550,7 +712,7 @@ if (!customerId) throw new Error("No client selected");
 
             {items.map((it, idx) => {
               const isLast = idx === items.length - 1;
-              const amount = (parseFloat(it.rate) || 0) * (parseFloat(it.qty) || 0);
+          const amount = toNumber(it.rate) * toNumber(it.qty);
 
               return (
                 <View
@@ -558,6 +720,7 @@ if (!customerId) throw new Error("No client selected");
                   style={[
                     styles.itemTile,
                     {
+                      marginTop: 8,
                       marginBottom: isLast ? 10 : 8,
                       backgroundColor: darkMode
                         ? "rgba(0,0,0,0.35)"
@@ -565,31 +728,38 @@ if (!customerId) throw new Error("No client selected");
                     },
                   ]}
                 >
-                 <View style={{ flex: 1, paddingRight: 8 }}>
+               <View style={styles.inputGroup}>
 
-  {/* TITLE TAP ZONE (black box) */}
-  <TapToFocus
-    inputKey={`itemTitle${it.id}`}
-    inputRefs={inputRefs}
-    style={styles.titleTapZone}
-  >
+  {/* TITLE */}
+ <TapToFocus
+  inputKey={`itemTitle${it.id}`}
+  inputRefs={inputRefs}
+  style={{ flex: 1 }}
+>
+  <View style={styles.inputRow}>
     <TextInput
       ref={(r) => (inputRefs.current[`itemTitle${it.id}`] = r)}
       onFocus={() => scrollToInput(`itemTitle${it.id}`)}
       placeholder="Item title"
-      placeholderTextColor={darkMode ? "#8C8C94" : "#A1A1AA"}
+      placeholderTextColor={darkMode ? "#9A9AA0" : "#8A8A94"}
       value={it.title}
       onChangeText={(v) => editRow(it.id, "title", v)}
-      style={[styles.itemTitleInput, { color: darkMode ? "#FFF" : "#111" }]}
+      style={[styles.groupInputTitle, { color: darkMode ? "#FFF" : "#111" }]}
     />
-  </TapToFocus>
+  </View>
+</TapToFocus>
 
-  {/* DESCRIPTION TAP ZONE (blue box) */}
+
+  {/* DIVIDER */}
+  <View style={styles.inputDivider} />
+
+  {/* DESCRIPTION */}
   <TapToFocus
-    inputKey={`itemNote${it.id}`}
-    inputRefs={inputRefs}
-    style={styles.noteTapZone}
-  >
+  inputKey={`itemNote${it.id}`}
+  inputRefs={inputRefs}
+  style={{ flex: 1 }}
+>
+  <View style={styles.inputRow}>
     <TextInput
       ref={(r) => (inputRefs.current[`itemNote${it.id}`] = r)}
       onFocus={() => scrollToInput(`itemNote${it.id}`)}
@@ -598,28 +768,45 @@ if (!customerId) throw new Error("No client selected");
       value={it.note}
       onChangeText={(v) => editRow(it.id, "note", v)}
       multiline
-      style={[styles.itemNoteInput, { color: darkMode ? "#CFCFD7" : "#555" }]}
+      style={[styles.groupInputNote, { color: darkMode ? "#CFCFD7" : "#555" }]}
     />
-  </TapToFocus>
+  </View>
+</TapToFocus>
 
 </View>
 
 
                   <View style={{ alignItems: "flex-end", gap: 6 }}>
-                   <TapToFocus
+           <TapToFocus
   inputKey={`itemRate${it.id}`}
   inputRefs={inputRefs}
-  style={styles.tapWrapRight}
+  style={[
+    styles.amountPill,
+    {
+      backgroundColor: darkMode
+        ? "rgba(255,255,255,0.10)"
+        : "#F0F0F5",
+    },
+  ]}
 >
   <TextInput
     ref={(r) => (inputRefs.current[`itemRate${it.id}`] = r)}
     onFocus={() => scrollToInput(`itemRate${it.id}`)}
     placeholder="$0.00"
-    placeholderTextColor={darkMode ? "#8C8C94" : "#A1A1AA"}
+    placeholderTextColor={darkMode ? "#9A9AA0" : "#8A8A94"}
     keyboardType="decimal-pad"
     value={it.rate}
     onChangeText={(v) => editRow(it.id, "rate", v)}
-    style={[styles.itemSideInput, { color: darkMode ? "#FFF" : "#111" }]}
+    style={[
+      styles.itemSideInput,
+      {
+        color: darkMode ? "#FFF" : "#111",
+        padding: 0,
+        minWidth: 40,
+        flexShrink: 1,
+        textAlign: "right",
+      },
+    ]}
   />
 </TapToFocus>
 
@@ -665,8 +852,9 @@ if (!customerId) throw new Error("No client selected");
 
                    <TouchableOpacity
   onPress={() => removeRow(it.id)}
-  hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+  hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}   style={{ marginTop: 8 }} // 👈 adjust this
 >
+
 
                       <Ionicons
                         name="trash-outline"
@@ -872,63 +1060,32 @@ if (!customerId) throw new Error("No client selected");
         </Animated.ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal
-        visible={clientPickerVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setClientPickerVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View
-            style={[
-              styles.modalSheet,
-              { backgroundColor: darkMode ? "#111118" : "#F9F9FC" },
-            ]}
-          >
-            <View style={styles.modalHandle} />
-            <Text style={[styles.modalTitle, { color: darkMode ? "#FFF" : "#111" }]}>
-              Select Client
-            </Text>
 
-            {clients.map((client) => (
-              <TouchableOpacity
-                key={client._id}
-                style={[
-                  styles.clientRow,
-                  {
-                    borderBottomColor: darkMode
-                      ? "rgba(255,255,255,0.06)"
-                      : "rgba(0,0,0,0.06)",
-                  },
-                ]}
-                onPress={() => handleSelectClient(client)}
-              >
-                <View>
-                  <Text style={[styles.clientName, { color: darkMode ? "#FFF" : "#111" }]}>
-                    {client.name}
-                  </Text>
-                  <Text style={[styles.clientMeta, { color: darkMode ? "#A0A0AA" : "#6D6D72" }]}>
-                    {client.address}
-                  </Text>
-                  <Text style={[styles.clientMeta, { color: darkMode ? "#A0A0AA" : "#6D6D72" }]}>
-                    {client.phone}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={darkMode ? "#888" : "#999"} />
-              </TouchableOpacity>
-            ))}
 
-            <TouchableOpacity
-              style={styles.modalCancelBtn}
-              onPress={() => setClientPickerVisible(false)}
-            >
-              <Text style={[styles.modalCancelTxt, { color: darkMode ? "#FFF" : "#111" }]}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+             
+
+{!token && (
+  <Pressable
+    onPress={() => {
+      console.log("🚨 NO TOKEN - redirecting to login");
+
+      const rootNav =
+        navigation.getParent?.()?.getParent?.() || navigation;
+
+      rootNav.navigate("LoginScreen", {
+        redirectTo: "InvoiceBuilderScreen",
+      });
+    }}
+    style={[
+      StyleSheet.absoluteFill,
+      {
+        zIndex: 999,
+        elevation: 10, // Android
+      },
+    ]}
+  />
+)}
+
     </SafeAreaView>
   );
 }
@@ -980,7 +1137,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderColor: "rgba(255,255,255,0.7)",
+  borderColor: "rgba(255, 255, 255, 1)",
     borderWidth: 1,
   },
   cardContent: { padding: 16 },
@@ -1017,6 +1174,54 @@ tapWrapRight: {
 },
 
 
+
+
+
+
+
+
+
+
+inputGroup: {
+  flex: 1,
+  borderRadius: 14,
+  overflow: "hidden",
+  backgroundColor: "rgba(255,255,255,0.65)", // iOS grouped feel
+},
+
+inputRow: {
+  paddingHorizontal: 12,
+  paddingVertical: 10,
+  justifyContent: "center",
+},
+
+inputDivider: {
+  height: StyleSheet.hairlineWidth,
+  backgroundColor: "rgba(0,0,0,0.16)", // 🔥 darker
+  marginLeft: 12,
+},
+
+groupInputTitle: {
+  fontSize: 15,
+  fontWeight: "600",
+},
+
+groupInputNote: {
+  fontSize: 13,
+  minHeight: 85, // 👈 increase this
+},
+
+
+
+
+
+
+
+
+
+
+
+
 titleTapZone: {
   minHeight: 36,        // compact title strip
   justifyContent: "center",
@@ -1046,22 +1251,46 @@ noteTapZone: {
   },
   metaValueStrong: { fontSize: 15, fontWeight: "800" },
 
-  itemTile: {
-    borderRadius: 16,
-    padding: 12,
-    flexDirection: "row",
-  },
+ itemTile: {
+  borderRadius: 18,
+  padding: 12,
+  flexDirection: "row",
+
+
+ // ✅ NEW BORDER
+  borderWidth: 1,
+  borderColor: "rgba(239, 239, 239, 0.95)",
+
+
+  shadowColor: "#000",
+  shadowOpacity: 0.06,
+  shadowRadius: 10,
+  shadowOffset: { width: 0, height: 4 },
+
+  elevation: 2, // Android
+},
+
+
+
   itemTitleInput: { fontSize: 15, fontWeight: "600", marginBottom: 3 },
   itemNoteInput: {
   fontSize: 13,
 },
 
 
-  itemSideInput: { fontSize: 13, fontWeight: "600", textAlign: "right" },
-  amountPill: {
+  itemSideInput: 
+  { fontSize: 13, 
+    fontWeight: "600", 
+    textAlign: "right" 
+  
+  
+  
+  },
+    amountPill: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 30,
+     alignSelf: "flex-end",
   },
 
   addBtn: { flexDirection: "row", alignItems: "center", marginTop: 8 },
@@ -1191,3 +1420,6 @@ noteTapZone: {
     fontWeight: "600",
   },
 });
+
+
+

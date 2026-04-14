@@ -70,7 +70,7 @@ import EditProfileScreen from "./src/screens/EditProfileScreen";
 import BusinessPlaceProductsScreen from "./src/screens/BusinessPlaceProductsScreen";
 import PayoutScreen from "./src/screens/PayoutScreen";
 import HelpioReceiptScreen from "./src/screens/HelpioReceiptScreen";
-
+import ClientPickerModal from "./src/components/ClientPickerModal";
 
 import { api } from "./src/config/api";
 import { registerForPushNotificationsAsync } from "./src/utils/pushNotifications";
@@ -394,6 +394,16 @@ function RootNavigator() {
   options={{
     headerShown: false,
     presentation: "card", // feels native push
+  }}
+/>
+
+
+<Stack.Screen
+  name="ClientPickerModal"
+  component={ClientPickerModal}
+  options={{
+    presentation: "formSheet", // 🔥 THIS is the key
+    headerShown: false,
   }}
 />
 

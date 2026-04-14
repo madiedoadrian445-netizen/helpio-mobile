@@ -1,4 +1,4 @@
- // src/screens/ClientProfileScreen.js
+// src/screens/ClientProfileScreen.js
 import React, { useEffect, useState, useCallback } from "react";
 import {
   SafeAreaView,
@@ -19,10 +19,25 @@ import { useTheme } from "../ThemeContext";
 import { API_BASE_URL } from "../config/api";
 import { api } from "../config/api";
 import { RefreshControl } from "react-native";
-
+import { useFocusEffect } from "@react-navigation/native";
 
 
 const HELP_BLUE = "#00A6FF";
+
+const formatCurrency = (value) => {
+  const num = Number(value);
+
+  if (!num || isNaN(num)) return "$0.00";
+
+  // 🔥 normalize cents → dollars
+  const normalized = num > 10000 ? num / 100 : num;
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(normalized);
+};
+
 
 export default function ClientProfileScreen({ route, navigation }) {
   const { darkMode, theme } = useTheme();
@@ -31,6 +46,9 @@ const [refreshing, setRefreshing] = useState(false);
 
   const initialClient = route?.params?.client || null;
 const [client, setClient] = useState(initialClient);
+
+const [activity, setActivity] = useState([]);
+
 
 
   const customerId = (() => {
@@ -55,6 +73,9 @@ const [client, setClient] = useState(initialClient);
 })();
 
 
+
+
+
   const initials = (client.name || "?")
     .split(" ")
     .map((p) => p[0])
@@ -68,7 +89,18 @@ const [client, setClient] = useState(initialClient);
   const notes = client.notes || "";
 
   const jobsCount = client.jobsCount || 0;
-  const totalRevenue = client.totalRevenue || 0;
+
+
+const totalRevenue = activity.reduce((sum, a) => {
+  const num = Number(a.amount || 0);
+
+  const normalized = num > 10000 ? num / 100 : num;
+
+  return sum + normalized;
+}, 0);
+
+
+
   const lastActivity = client.lastActivity || "No recent activity";
 
   const cleaned = phone.replace(/\D/g, "");
@@ -90,15 +122,44 @@ const loadTimeline = useCallback(async () => {
   try {
     setTimelineLoading(true);
 
-    const res = await api.get(`/api/customers/${customerId}/timeline`);
+  const res = await api.get(`/api/customers/${customerId}/timeline`);
+const activityRes = await api.get(`/api/activity?customerId=${customerId}`);
 
-    if (Array.isArray(res.data)) {
-      setTimeline(res.data);
-    } else if (Array.isArray(res.data?.timeline)) {
-      setTimeline(res.data.timeline);
-    } else {
-      setTimeline([]);
-    }
+// ✅ existing timeline (invoices, etc)
+const timelineData =
+  Array.isArray(res.data)
+    ? res.data
+    : res.data?.timeline || [];
+
+// ✅ activity (payments)
+const activityData = activityRes.data.activity || [];
+
+setActivity(activityData);
+
+
+// 🔥 normalize activity → match timeline structure
+const normalizedActivity = activityData.map((a) => ({
+  _id: a._id || a.id, // 🔥 FIX
+  type: a.category,
+  title: a.title,
+  description: a.message,
+  amount: a.amount,
+  createdAt: a.createdAt,
+}));
+
+// 🔥 merge + sort newest first
+const combined = [...normalizedActivity, ...timelineData]
+  .filter((item) => item && item.createdAt) // 🔥 safety
+  .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+console.log("🔥 timelineData:", timelineData.length);
+console.log("🔥 activityData:", activityData.length);
+console.log("🔥 combined:", combined);
+
+setTimeline(combined);
+
+
+
   } catch (err) {
     console.log(
       "❌ Error loading timeline:",
@@ -252,6 +313,15 @@ useEffect(() => {
   loadTimeline();
 }, [loadTimeline]);
 
+useFocusEffect(
+  React.useCallback(() => {
+    console.log("🔁 ClientProfile focused → refreshing");
+
+    loadTimeline();
+    loadClient();
+
+  }, [customerId])
+);
 
   const iconForType = (type) => {
     switch (type) {
@@ -396,7 +466,7 @@ useEffect(() => {
               <View style={styles.statItem}>
                 <Text style={styles.statLabel}>Revenue</Text>
                 <Text style={styles.statValue}>
-                  ${totalRevenue.toLocaleString("en-US")}
+          {formatCurrency(totalRevenue)}
                 </Text>
               </View>
 
@@ -548,15 +618,15 @@ useEffect(() => {
             {!timelineLoading &&
               timeline.map((entry) => (
                 <TimelineItem
-  key={entry._id}
+key={`${entry._id || entry.createdAt}-${entry.type}`}
   icon={iconForType(entry.type)}
   title={entry.title}
-  subtitle={
-    entry.description ||
-    (entry.amount
-      ? `$${entry.amount.toLocaleString("en-US")}`
-      : "")
-  }
+ subtitle={
+  entry.type === "payment"
+    ? formatCurrency(entry.amount)
+    : entry.description || ""
+}
+
   time={formatRelativeTime(entry.createdAt)}
   type={entry.type}
   invoiceId={entry.invoice}

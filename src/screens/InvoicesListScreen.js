@@ -187,7 +187,11 @@ if (!invoices.length) {
               renderRightActions={() => renderRightActions(inv._id)}
               overshootRight={false}
             >
-              <View style={styles.row}>
+   <TouchableOpacity
+  activeOpacity={0.7}
+  onPress={() => navigation.navigate("InvoicePreviewScreen", { id: inv._id })}
+>
+  <View style={styles.row}>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.id, { color: theme.text }]}>
                     {inv.invoiceNumber || `INV-${inv._id.slice(-4)}`}
@@ -207,13 +211,15 @@ if (!invoices.length) {
                   </Text>
                 </View>
               </View>
-              
+               </TouchableOpacity>
             </Swipeable>
 
             {!isLast && <View style={styles.divider} />}
           </View>
         );
       })}
+
+      
     </View>
  </ScrollView>
 );

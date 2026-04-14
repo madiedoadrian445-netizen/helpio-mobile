@@ -14,6 +14,58 @@ import { api } from "../config/api";
 
 const HELP_BLUE = "#00A6FF";
 
+const formatPhoneNumber = (phone) => {
+  if (!phone) return "";
+  let cleaned = phone.replace(/\D/g, "");
+  if (cleaned.length === 11 && cleaned.startsWith("1")) {
+    cleaned = cleaned.slice(1);
+  }
+  if (cleaned.length !== 10) return phone;
+  return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+};
+
+const formatAddress = (address) => {
+  if (!address) return "";
+
+  let cleaned = address
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+    .replace(/([a-zA-Z])(\d)/g, "$1 $2");
+
+  const match = cleaned.match(/^(.*)\s([A-Za-z]+)\s([A-Za-z]{2})\s(\d{5})$/);
+
+  if (!match) return cleaned;
+
+  let [, street, city, state, zip] = match;
+
+  const cap = (w) =>
+    w.length === 2
+      ? w.toUpperCase()
+      : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+
+  const normalizeStreet = (word) => {
+    const map = {
+      st: "St",
+      ave: "Ave",
+      blvd: "Blvd",
+      rd: "Rd", 
+      dr: "Dr",
+      ln: "Ln",
+      ct: "Ct",
+      pl: "Pl",
+    };
+    return map[word.toLowerCase()] || cap(word);
+  };
+
+  const formattedStreet = street.split(" ").map(normalizeStreet).join(" ");
+
+return `${formattedStreet}<br/>${cap(city)}, ${state.toUpperCase()} ${zip}`;
+};
+
+
+
+
 const currency = (n) =>
   (isNaN(Number(n)) ? 0 : Number(n)).toLocaleString("en-US", {
     style: "currency",
@@ -151,9 +203,9 @@ function buildInvoiceHtml({
           <td style="padding-left:14px;">
             <h1>${business.name || ""}</h1>
             <div class="meta">${business.line2 || ""}</div>
-            <div class="meta">${business.addr1 || ""}</div>
+          <div class="meta">${formatAddress(business.addr1)}</div>
             <div class="meta">${business.addr2 || ""}</div>
-            <div class="meta">${business.phone || ""}</div>
+         <div class="meta">${formatPhoneNumber(business.phone)}</div>
             <div class="meta">${business.email || ""}</div>
           </td>
         </tr>
@@ -166,8 +218,8 @@ function buildInvoiceHtml({
           <td style="width:60%;">
             <div class="section">BILL TO</div>
             <h2>${client.name || ""}</h2>
-            <div class="meta">${client.addr1 || ""}</div>
-            <div class="meta">${client.phone || ""}</div>
+     ${client.addr1 ? `<div class="meta">${formatAddress(client.addr1)}</div>` : ""}
+${client.phone ? `<div class="meta">${formatPhoneNumber(client.phone)}</div>` : ""}
             <div class="meta">${client.email || ""}</div>
           </td>
           <td style="width:40%;">
@@ -237,7 +289,13 @@ export default function InvoicePreviewScreen({ navigation, route }) {
 
      setInvoiceData({
   business: i.providerSnapshot || {},
-  client: i.customerSnapshot || {},
+client: {
+  ...i.customerSnapshot,
+  addr1:
+    i.customerSnapshot?.address ||
+    i.customerSnapshot?.addr1 ||
+    "",
+},
   items: i.items || [],
   numbers: {
     subtotal: i.subtotal,
@@ -301,3 +359,4 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
+

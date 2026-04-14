@@ -217,15 +217,16 @@ const handleRegisterProvider = async () => {
 
     console.log("REGISTER RESPONSE:", data);
 
-    if (!data?.token || !data?.user) {
+   if (!data?.token || !data?.refreshToken || !data?.user) {
       throw new Error("Invalid register response");
     }
 
-    await useAuthStore.getState().setAuth({
-      token: data.token,
-      user: data.user,
-      provider: { _id: data.user.providerId },
-    });
+   await useAuthStore.getState().setAuth({
+  token: data.token,
+  refreshToken: data.refreshToken,
+  user: data.user,
+  provider: { _id: data.user.providerId },
+});
 
     console.log("REGISTER SUCCESS ✅");
 

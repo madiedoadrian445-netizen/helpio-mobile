@@ -39,12 +39,17 @@ export default function AnalyticsDashboardScreen({ navigation }) {
 const token = useAuthStore((state) => state.token);
 const user = useAuthStore((state) => state.user);
 const isHydrated = useAuthStore((state) => state.isHydrated);
+const analyticsCache = useAuthStore((state) => state.analyticsCache);
+const setAnalyticsCache = useAuthStore((state) => state.setAnalyticsCache);
+
+
 const [refreshing, setRefreshing] = useState(false);
 const providerId = user?.providerId;
-
+const isProvider = !!user?.providerId;
 const [analytics, setAnalytics] = useState({
   
   salesToday: 0,
+  transactionsToday: 0,
   invoicesToday: 0,
   subscriptions: 0,
   totalLast30Days: 0,
@@ -57,22 +62,53 @@ const [lastUpdated, setLastUpdated] = useState(Date.now());
 
 
  const loadAnalytics = async () => {
-  try {
+  if (!isProvider) {
+    console.log("⛔ Preview mode — skipping analytics");
+    return;
+  }
 
+  try {
     const res = await api.get("/api/analytics");
 
-console.log("Analytics API response:", res.data);
+    console.log("Analytics API response:", res.data);
+
+    if (res.data.success) {
 
 
-if (res.data.success) {
-  setAnalytics(res.data.analytics);
-  setLastUpdated(Date.now());
-}
+      const data = res.data.analytics;
+setAnalytics(data);
 
+setAnalyticsCache((prev) => ({
+  ...prev,
+
+  revenue30Days:
+    data.totalLast30Days > 0
+      ? data.totalLast30Days
+      : prev.revenue30Days,
+
+  totalInvoices:
+    data.totalInvoices > 0
+      ? data.totalInvoices
+      : prev.totalInvoices,
+
+  totalTransactions:
+    data.totalTransactions > 0
+      ? data.totalTransactions
+      : prev.totalTransactions,
+
+  totalClients:
+    data.totalClients > 0
+      ? data.totalClients
+      : prev.totalClients,
+}));
+
+      setLastUpdated(Date.now());
+    }
   } catch (err) {
     console.log("Analytics load error:", err);
   }
 };
+
 
 const getRelativeTime = () => {
   const seconds = Math.floor((Date.now() - lastUpdated) / 1000);
@@ -103,34 +139,30 @@ const getRelativeTime = () => {
 
 
 useEffect(() => {
-
-  if (!isHydrated || !token) return;
+  if (!isHydrated || !token || !isProvider) return;
 
   loadAnalytics();
-
-}, [isHydrated, token]);
+}, [isHydrated, token, isProvider]);
 
 
 useFocusEffect(
   useCallback(() => {
-    if (isHydrated && token) {
+    if (isHydrated && token && isProvider) {
       loadAnalytics();
     }
-  }, [isHydrated, token])
+  }, [isHydrated, token, isProvider])
 );
 
 
 useEffect(() => {
-
-  if (!isHydrated || !token) return;
+  if (!isHydrated || !token || !isProvider) return;
 
   const interval = setInterval(() => {
     loadAnalytics();
-  }, 15000); // refresh every 15 seconds
+  }, 15000);
 
   return () => clearInterval(interval);
-
-}, [isHydrated, token]);
+}, [isHydrated, token, isProvider]);
 
 
 
@@ -179,11 +211,12 @@ const axisLevels = [
 ];
 
   const onRefresh = async () => {
+  if (!isProvider) return;
+
   setRefreshing(true);
   await loadAnalytics();
   setRefreshing(false);
 };
-
  
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
@@ -276,24 +309,27 @@ const axisLevels = [
         <View style={styles.kpiRow}>
        <MiniKpiTile
   label="Sales so far today"
-  value={`$${analytics.salesToday.toLocaleString()}`}
+  value={`$${(analytics.salesToday || 0).toLocaleString()}`}
   accent={HELP_BLUE}
   isLight={isLight}
 />
 
 <MiniKpiTile
   label="Transactions today"
-  value={analytics.invoicesToday}
+ value={(analytics.transactionsToday || 0).toLocaleString()}
   accent="#34C759"
   isLight={isLight}
 />
 
-<MiniKpiTile
-  label="Invoices Today"
-  value={analytics.subscriptions}
-  accent="#34C759"
-  isLight={isLight}
-/>
+
+ <MiniKpiTile
+    label="Invoices today"
+    value={(analytics.invoicesToday || 0).toLocaleString()}
+    accent="#34C759"
+    isLight={isLight}
+  />
+
+
         </View>
 
         {/* Service Sales card with bar chart */}
@@ -315,10 +351,25 @@ const axisLevels = [
 
           {/* KPI row inside card */}
           <View style={styles.salesKpiRow}>
-            <View style={{ flex: 1.1 }}>
-              <Text style={[styles.salesAmount, { color: theme.text }]}>
-               ${analytics.totalLast30Days.toLocaleString()}
-              </Text>
+            <View style={{ flex: 1.6 }}>
+             
+             
+             <Text
+  numberOfLines={1}
+  adjustsFontSizeToFit
+  minimumFontScale={0.7}
+  style={[styles.salesAmount, { color: theme.text }]}
+>
+${
+  (
+  analytics.totalLast30Days > 0
+    ? analytics.totalLast30Days
+    : analyticsCache.revenue30Days
+).toLocaleString()
+}
+</Text>
+
+
               <Text
                 style={[styles.salesSubLabel, { color: theme.subtleText }]}
               >
@@ -470,11 +521,7 @@ const targetHeight =
             label="Manage clients"
             onPress={() => navigation.navigate("ClientsScreen")}
           />
-          <DashboardRow
-            icon="repeat-outline"
-            label="Subscriptions & plans"
-            onPress={() => navigation.navigate("SubscriptionPlans")}
-          />
+         
           <DashboardRow
             icon="chatbubbles-outline"
             label="Communications"
@@ -684,10 +731,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     marginTop: 6,
   },
-  salesAmount: {
-    fontSize: 26,
-    fontWeight: "800",
-  },
+
+  
+ salesAmount: {
+  fontSize: 26,
+  fontWeight: "800",
+},
+
+
   salesSubLabel: {
     fontSize: 12,
     marginTop: 2,
@@ -706,7 +757,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   yAxisLabels: {
-    width: 46,
+    width: 60,
     justifyContent: "space-between",
     paddingVertical: 4,
     paddingRight: 4,

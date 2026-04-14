@@ -6,6 +6,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   StyleSheet,
   Platform,
@@ -19,7 +20,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../ThemeContext";
 import { api } from "../config/api";
 import useAuthStore from "../store/auth";
-
+import ContactAvatar from "../components/ContactAvatar";
 
 /* ----------------------------------------------------
    MEMOIZED FIELD COMPONENT
@@ -34,14 +35,20 @@ const Field = memo(function Field({
 }) {
   return (
     <View style={styles.fieldRow}>
-      <Text style={[styles.label, { color: theme.subtleText }]}>{label}</Text>
-      <TextInput
-        style={[styles.input, { color: theme.text }]}
-        placeholder={placeholder}
-        placeholderTextColor={darkMode ? "#888" : "#A8A8AD"}
-        value={value}
-        onChangeText={onChange}
-      />
+      <Text style={[styles.label, { color: theme.subtleText }]}>
+        {label}
+      </Text>
+
+
+<TextInput
+  style={[styles.input, { color: theme.text }]}
+  placeholder={placeholder}
+  placeholderTextColor={darkMode ? "#888" : "#A8A8AD"}
+  value={value}
+  onChangeText={onChange}
+  keyboardType={label === "Phone" ? "phone-pad" : "default"}
+  maxLength={label === "Phone" ? 14 : undefined}
+/>
     </View>
   );
 });
@@ -50,6 +57,8 @@ export default function AddClientScreen({ navigation, route }) {
   const { darkMode, theme } = useTheme();
 const user = useAuthStore((state) => state.user);
 const token = useAuthStore((state) => state.token);
+const isProvider = !!user?.providerId;
+
 const editingClient = route?.params?.client || null;
 const isEditMode = !!editingClient;
 
@@ -61,6 +70,23 @@ const [company, setCompany] = useState(editingClient?.company || "");
 const [address, setAddress] = useState(editingClient?.address || "");
 const [notes, setNotes] = useState(editingClient?.notes || "");
 const [loading, setLoading] = useState(false);
+
+const formatPhoneNumber = (value) => {
+  const digits = value.replace(/\D/g, "").slice(0, 10);
+
+  const area = digits.slice(0, 3);
+  const middle = digits.slice(3, 6);
+  const last = digits.slice(6, 10);
+
+  if (digits.length < 4) return area;
+  if (digits.length < 7) return `(${area}) ${middle}`;
+  return `(${area}) ${middle}-${last}`;
+};
+const handlePreviewBlock = () => {
+  if (!isProvider) {
+    navigation.navigate("BusinessPlaceProducts");
+  }
+};
 
   /* -------------------------
        DEBUG TOKEN ON MOUNT
@@ -77,7 +103,14 @@ const isValidEmail = (value) => {
 };
 
 const handleDelete = () => {
+  // 🔒 BLOCK FIRST (before Alert)
+  if (!isProvider) {
+    navigation.navigate("BusinessPlaceProducts");
+    return;
+  }
+
   if (!editingClient?._id) return;
+
 
   Alert.alert(
     "Delete Client",
@@ -104,11 +137,18 @@ const handleDelete = () => {
   /* -------------------------
        SAVE TO BACKEND (FIXED)
   ------------------------- */
-  const handleSave = async () => {
-   if (!fullName.trim() || fullName.trim().length < 2) {
-  Alert.alert("Name required", "Client name must be at least 2 characters");
-  return;
-}
+ const handleSave = async () => {
+  // 🔒 FIRST — block preview users
+  if (!isProvider) {
+    navigation.navigate("BusinessPlaceProducts");
+    return;
+  }
+
+  // ✅ THEN validation
+  if (!fullName.trim() || fullName.trim().length < 2) {
+    Alert.alert("Name required", "Client name must be at least 2 characters");
+    return;
+  }
 
 
 
@@ -123,7 +163,7 @@ if (!isValidEmail(email)) {
 
       const payload = {
   name: fullName.trim(),
-  phone: phone || undefined,
+ phone: phone ? phone.replace(/\D/g, "") : undefined,
   email: email?.trim() || undefined,
   company: company || undefined,
   address: address || undefined,
@@ -148,7 +188,21 @@ if (!isValidEmail(email)) {
 
       // ✅ Always return to Clients list after save
 // ✅ Go back to the existing Clients screen
-navigation.pop();
+const newClient = res.data.customer || res.data.client;
+
+const fromPicker = route?.params?.fromPicker;
+const onSelect = route?.params?.onSelect;
+
+if (fromPicker && onSelect) {
+  // 🔥 Auto select client
+  onSelect(newClient);
+
+  // 🔥 Go back twice (AddClient → Clients → Invoice)
+  navigation.goBack();
+  navigation.goBack();
+} else {
+  navigation.goBack();
+}
 
 
 
@@ -182,25 +236,37 @@ navigation.pop();
 
 
 
-        <TouchableOpacity
-          style={styles.headerSide}
-          onPress={handleSave}
-          disabled={!fullName.trim().length || loading}
-        >
-          <Text
-            style={[
-              styles.headerText,
-              {
-                color:
-                  fullName.trim().length && !loading
-                    ? "#007AFF"
-                    : "rgba(0,0,0,0)",
-              },
-            ]}
-          >
-            Save
-          </Text>
-        </TouchableOpacity>
+       <TouchableOpacity
+  onPress={handleSave}
+  disabled={!fullName.trim().length || loading}
+  style={[
+    styles.checkButton,
+    {
+      backgroundColor:
+        fullName.trim().length && !loading
+          ? "#007AFF"
+          : darkMode
+          ? "rgba(255,255,255,0.15)"
+          : "rgba(0,0,0,0.1)",
+    },
+  ]}
+>
+  {loading ? (
+    <ActivityIndicator color="#fff" size="small" />
+  ) : (
+    <Ionicons
+      name="checkmark"
+      size={20}
+      color={
+        fullName.trim().length && !loading
+          ? "#fff"
+          : darkMode
+          ? "#888"
+          : "#999"
+      }
+    />
+  )}
+</TouchableOpacity>
       </BlurView>
 
       {/* FORM */}
@@ -209,49 +275,47 @@ navigation.pop();
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingBottom: 120,
-            paddingTop: 110,
+            paddingTop: 70,
           }}
         >
           {/* AVATAR */}
-          <View style={styles.avatarWrap}>
-            <View
-              style={[
-                styles.avatar,
-                {
-                  backgroundColor: darkMode
-                    ? "rgba(255,255,255,0.07)"
-                    : "rgba(0,0,0,0.07)",
-                },
-              ]}
-            >
-              <Ionicons name="person-add-outline" size={42} color="#007AFF" />
-            </View>
-          </View>
-
-          {/* MAIN CARD */}
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: theme.card, shadowOpacity: darkMode ? 0 : 0.06 },
-            ]}
-          >
-            <Field
-              label="Full Name"
-              placeholder="Client's full name"
-              value={fullName}
-              onChange={setFullName}
-              theme={theme}
-              darkMode={darkMode}
-            />
+         <View style={styles.avatarWrap}>
+  <ContactAvatar size={160} />
+</View>
+         {/* MAIN CARD */}
+<TouchableOpacity
+  activeOpacity={1}
+  onPress={() => {
+    if (!isProvider) {
+      navigation.navigate("BusinessPlaceProducts");
+      return;
+    }
+  }}
+>
+  <View
+    style={[
+      styles.card,
+      { backgroundColor: theme.card, shadowOpacity: darkMode ? 0 : 0.06 },
+    ]}
+  >
+    <Field
+      label="Full Name"
+      placeholder="Client's full name"
+      value={fullName}
+      onChange={setFullName}
+      theme={theme}
+      darkMode={darkMode}
+    />
             <View style={styles.hairline} />
 
             <Field
               label="Phone"
-              placeholder="(305) 555-0123"
+              placeholder="Contact Number"
               value={phone}
-              onChange={setPhone}
+              onChange={(text) => setPhone(formatPhoneNumber(text))}
               theme={theme}
               darkMode={darkMode}
+       
             />
             <View style={styles.hairline} />
 
@@ -262,20 +326,31 @@ navigation.pop();
               onChange={setEmail}
               theme={theme}
               darkMode={darkMode}
+        
             />
           </View>
+</TouchableOpacity>
 
           {/* ADDITIONAL INFO */}
           <Text style={[styles.sectionHeader, { color: theme.subtleText }]}>
             ADDITIONAL INFO
           </Text>
 
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: theme.card, shadowOpacity: darkMode ? 0 : 0.06 },
-            ]}
-          >
+        <TouchableOpacity
+  activeOpacity={1}
+  onPress={() => {
+    if (!isProvider) {
+      navigation.navigate("BusinessPlaceProducts");
+      return;
+    }
+  }}
+>
+  <View
+    style={[
+      styles.card,
+      { backgroundColor: theme.card, shadowOpacity: darkMode ? 0 : 0.06 },
+    ]}
+  >
             <Field
               label="Company"
               placeholder="Optional"
@@ -283,6 +358,7 @@ navigation.pop();
               onChange={setCompany}
               theme={theme}
               darkMode={darkMode}
+  
             />
             <View style={styles.hairline} />
 
@@ -293,6 +369,7 @@ navigation.pop();
               onChange={setAddress}
               theme={theme}
               darkMode={darkMode}
+
             />
             <View style={styles.hairline} />
 
@@ -303,8 +380,11 @@ navigation.pop();
               onChange={setNotes}
               theme={theme}
               darkMode={darkMode}
+            
             />
-          </View>
+      </View>
+</TouchableOpacity>
+
 
 {isEditMode && (
   <TouchableOpacity
@@ -351,6 +431,9 @@ navigation.pop();
           )}
         </TouchableOpacity>
       </BlurView>
+
+
+
     </SafeAreaView>
   );
 }
@@ -389,6 +472,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
+
+checkButton: {
+  width: 34,
+  height: 34,
+  borderRadius: 17,
+  alignItems: "center",
+  justifyContent: "center",
+  marginBottom: -12,
+},
+
+
 
   card: {
     borderRadius: 24,
